@@ -181,6 +181,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
             case TrayCommand.OpenLogFolder:
                 _form.OpenLogFolder();
                 break;
+            case TrayCommand.ExportDiagnostics:
+                _form.ShowExport();
+                break;
             case TrayCommand.TogglePause:
                 _scheduler.TogglePause();
                 break;
@@ -194,6 +197,31 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 Exit();
                 break;
         }
+    }
+
+    private UpdateState? _notedState;
+    private string _notedError = "";
+
+    /// <summary>Each update step and error goes to the activity log once (not each progress tick).</summary>
+    private void NoteUpdate(UpdateStatus status)
+    {
+        if (status.State == _notedState && (status.Error ?? "") == _notedError)
+            return;
+        _notedState = status.State;
+        _notedError = status.Error ?? "";
+        var available = status.Available == null ? "" : " v" + AppUpdate.FormatVersion(status.Available);
+        var line = status.State switch
+        {
+            UpdateState.Checking => "Update: checking.",
+            UpdateState.Downloading => "Update: downloading" + available + ".",
+            UpdateState.Ready => "Update:" + available + " downloaded and verified, ready to install.",
+            UpdateState.Installing => "Update: installing" + available + ".",
+            UpdateState.UpToDate => "Update: up to date (v" + AppUpdate.FormatVersion(status.Current) + ").",
+            UpdateState.Error => "Update problem: " + (string.IsNullOrWhiteSpace(status.Error) ? "unknown" : status.Error),
+            _ => null,
+        };
+        if (line != null)
+            _scheduler.NoteActivity(line);
     }
 
     /// <summary>Install update when one is ready, otherwise a check whose result is a balloon.</summary>
@@ -231,6 +259,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         if (_exiting)
             return;
 
+        NoteUpdate(status);
         var ready = status.State == UpdateState.Ready && status.Available != null
             ? AppUpdate.FormatVersion(status.Available)
             : null;

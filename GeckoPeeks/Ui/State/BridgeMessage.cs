@@ -17,6 +17,7 @@ public enum BridgeCommand
     OpenUrl,
     SetSetting,
     SetRegion,
+    ExportDiagnostics,
 }
 
 public enum BridgeSetting
@@ -28,7 +29,8 @@ public enum BridgeSetting
 
 /// <summary>One web-to-host message from Contract 2.</summary>
 /// <param name="RegionId">For setRegion: "auto" or a lowercase region id.</param>
-public sealed record BridgeMessage(BridgeCommand Command, string? Url = null, BridgeSetting? Setting = null, bool Value = false, string? RegionId = null)
+/// <param name="Range">For exportDiagnostics: a key of <see cref="GeckoPeeks.Logging.DiagnosticsExport.Ranges"/>.</param>
+public sealed record BridgeMessage(BridgeCommand Command, string? Url = null, BridgeSetting? Setting = null, bool Value = false, string? RegionId = null, string? Range = null)
 {
     /// <summary>The longest region id setRegion accepts ("auto" or for example "euw1").</summary>
     public const int MaxRegionIdLength = 8;
@@ -74,6 +76,11 @@ public sealed record BridgeMessage(BridgeCommand Command, string? Url = null, Br
                     return ParseSetting(root);
                 case "setRegion":
                     return ParseRegion(root);
+                case "exportDiagnostics":
+                    return root.TryGetProperty("range", out var range) && range.ValueKind == JsonValueKind.String
+                        && range.GetString() is { } r && GeckoPeeks.Logging.DiagnosticsExport.Ranges.ContainsKey(r)
+                        ? new BridgeMessage(BridgeCommand.ExportDiagnostics, Range: r)
+                        : null;
                 default:
                     return null;
             }

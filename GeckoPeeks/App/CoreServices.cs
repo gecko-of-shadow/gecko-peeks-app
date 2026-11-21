@@ -1,4 +1,6 @@
+using System.Reflection;
 using GeckoPeeks.Cloud;
+using GeckoPeeks.Logging;
 using GeckoPeeks.Net;
 using GeckoPeeks.Routing;
 
@@ -15,8 +17,9 @@ public sealed class CoreServices : IDisposable
     private bool _disposed;
 
     private CoreServices(RefDataStore refData, AsnCache asn, RegionService region, CloudClient client,
-        CloudPoller cloud, DohClient doh, IHopResolver resolver)
+        CloudPoller cloud, DohClient doh, IHopResolver resolver, DiagnosticsStore diagnostics)
     {
+        Diagnostics = diagnostics;
         RefData = refData;
         Asn = asn;
         Region = region;
@@ -25,6 +28,17 @@ public sealed class CoreServices : IDisposable
         _doh = doh;
         Resolver = resolver;
         RefData.Changed += Region.OnRefDataChanged;
+        Cloud.Changed += SaveCloud;
+    }
+
+    /// <summary>The app version as "major.minor.build".</summary>
+    public static string AppVersion
+    {
+        get
+        {
+            var version = Assembly.GetExecutingAssembly().GetName().Version;
+            return version == null ? "?" : $"{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}";
+        }
     }
 
     public static CoreServices Create(RunProfile profile, string? devRoot, bool cloudEnabled) =>
@@ -43,7 +57,8 @@ public sealed class CoreServices : IDisposable
         var cloud = new CloudPoller(client, cloudEnabled, null, new CloudPollerOptions(asn, refData, region));
         var doh = new DohClient(dohHandler);
         var resolver = new HopResolver(asn, () => cloud.Enabled, client, doh);
-        return new CoreServices(refData, asn, region, client, cloud, doh, resolver);
+        var diagnostics = new DiagnosticsStore(DiagnosticsStore.PathFor(profile, devRoot), AppVersion);
+        return new CoreServices(refData, asn, region, client, cloud, doh, resolver, diagnostics);
     }
 
     public RefDataStore RefData { get; }
@@ -52,6 +67,47 @@ public sealed class CoreServices : IDisposable
     public CloudClient Client { get; }
     public CloudPoller Cloud { get; }
     public IHopResolver Resolver { get; }
+
+    /// <summary>Every test, cloud answer and League ping row, kept as JSON lines (never deleted).</summary>
+    public DiagnosticsStore Diagnostics { get; }
+
+    /// <summary>
+    /// Keeps each Cloudflare and Riot status answer that differs from the last one. Changed can fire
+    /// on the UI thread, so the parse and the file write run on the thread pool.
+    /// </summary>
+    private void SaveCloud() => ThreadPool.QueueUserWorkItem(_ => SaveCloudNow());
+
+    private readonly object _cloudSaveGate = new();
+
+    private void SaveCloudNow()
+    {
+        if (_disposed)
+            return;
+        // One save at a time, snapshot and write together, so an older snapshot is never written
+        // after a newer one.
+        lock (_cloudSaveGate)
+        {
+            SaveCloudLocked();
+        }
+    }
+
+    private void SaveCloudLocked()
+    {
+        try
+        {
+            var snapshot = Cloud.Snapshot();
+            if (!snapshot.Enabled)
+                return;
+            var now = DateTime.UtcNow;
+            Diagnostics.RecordCloud("edge", snapshot.EdgeJson, now);
+            Diagnostics.RecordCloud("pulse", snapshot.PulseJson, now);
+            Diagnostics.RecordCloud("riotStatus", snapshot.RiotStatusJson, now);
+        }
+        catch
+        {
+            // Diagnostics never stop the app.
+        }
+    }
 
     /// <summary>TargetIp from Region.Current, Resolver, RefData.Current.</summary>
     public ProbeRequest BuildRequest(bool leagueRunning) =>
@@ -64,6 +120,7 @@ public sealed class CoreServices : IDisposable
             return;
         _disposed = true;
         RefData.Changed -= Region.OnRefDataChanged;
+        Cloud.Changed -= SaveCloud;
         try
         {
             Asn.Flush();

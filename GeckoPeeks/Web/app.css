@@ -680,6 +680,8 @@ body.nav-collapsed main { margin-left: var(--side-w-collapsed); }
 .region-line { color: var(--muted); margin-top: 14px; overflow-wrap: anywhere; }
 .region-caveat { color: var(--warn); font-size: 13px; margin-top: 6px; overflow-wrap: anywhere; }
 .refdata-line { color: var(--faint); font-size: 12.5px; margin-top: 14px; overflow-wrap: anywhere; }
+.diag-text { color: var(--muted); font-size: 13.5px; margin: 4px 0 12px; overflow-wrap: anywhere; }
+.native-select.diag-range { min-width: 200px; }
 
 @media (max-width: 1240px) {
   .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }

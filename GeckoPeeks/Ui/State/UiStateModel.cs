@@ -181,4 +181,8 @@ public sealed record UiState(
     UpdateView Update,
     SettingsView Settings,
     RegionView? Region = null,
-    IReadOnlyList<RegionListItem>? Regions = null);
+    IReadOnlyList<RegionListItem>? Regions = null,
+    DiagnosticsView? Diagnostics = null);
+
+/// <summary>The Diagnostics folder, its size on disk (null = not known) and the last write problem.</summary>
+public sealed record DiagnosticsView(string Folder, long? Bytes, string Problem);

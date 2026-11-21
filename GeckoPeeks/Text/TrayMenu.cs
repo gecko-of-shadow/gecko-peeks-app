@@ -7,6 +7,7 @@ public enum TrayCommand
     CopyDiagnosis,
     OpenLog,
     OpenLogFolder,
+    ExportDiagnostics,
     TogglePause,
     StartWithWindows,
     CheckForUpdates,
@@ -34,6 +35,7 @@ public static class TrayMenu
         TrayCommand.CopyDiagnosis,
         TrayCommand.OpenLog,
         TrayCommand.OpenLogFolder,
+        TrayCommand.ExportDiagnostics,
         TrayCommand.TogglePause,
         TrayCommand.StartWithWindows,
         null,
@@ -53,6 +55,7 @@ public static class TrayMenu
         TrayCommand.CopyDiagnosis => "Copy diagnosis",
         TrayCommand.OpenLog => "Open log",
         TrayCommand.OpenLogFolder => "Open log folder",
+        TrayCommand.ExportDiagnostics => "Export diagnostics…",
         TrayCommand.TogglePause => paused ? "Resume logging" : "Pause logging",
         TrayCommand.StartWithWindows => "Start with Windows",
         TrayCommand.CheckForUpdates => string.IsNullOrWhiteSpace(updateVersion)

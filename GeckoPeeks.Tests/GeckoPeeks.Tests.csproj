@@ -39,6 +39,8 @@
     <Compile Include="..\GeckoPeeks\Net\NetworkContext.cs" Link="Net\NetworkContext.cs" />
     <Compile Include="..\GeckoPeeks\App\LogPaths.cs" Link="App\LogPaths.cs" />
     <Compile Include="..\GeckoPeeks\Logging\ActivityLog.cs" Link="Logging\ActivityLog.cs" />
+    <Compile Include="..\GeckoPeeks\Logging\DiagnosticsStore.cs" Link="Logging\DiagnosticsStore.cs" />
+    <Compile Include="..\GeckoPeeks\Logging\DiagnosticsExport.cs" Link="Logging\DiagnosticsExport.cs" />
     <!-- v2: updater service, Cloudflare client, and the WinForms-free UI state builder. -->
     <Compile Include="..\GeckoPeeks\App\UpdateService*.cs" Link="App\%(Filename)%(Extension)" />
     <Compile Include="..\GeckoPeeks\Cloud\*.cs" Link="Cloud\%(Filename)%(Extension)" />

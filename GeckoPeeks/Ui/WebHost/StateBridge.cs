@@ -116,6 +116,8 @@ internal sealed class StateBridge : IDisposable
         _startupChecked = _startup.Checked;
         LoadHistoryIfStale();
         PostNow();
+        if (_pendingPage is { } page && _surface.Post(UiStateJson.Navigate(page)))
+            _pendingPage = null;
     }
 
     /// <summary>The web view is gone: drop the cached history so the tray copy stays small.</summary>
@@ -152,6 +154,31 @@ internal sealed class StateBridge : IDisposable
     }
 
     public void Toast(string text, string tone = "normal") => _surface.Post(UiStateJson.Toast(text, tone));
+
+    private string? _pendingPage;
+    private DiagnosticsView? _diagnostics;
+    private DateTime _diagnosticsAtUtc = DateTime.MinValue;
+
+    /// <summary>Shows one page of the window; when the page is not loaded yet, once it is.</summary>
+    public void ShowPage(string page)
+    {
+        if (!_surface.PageReady || !_surface.Post(UiStateJson.Navigate(page)))
+            _pendingPage = page;
+    }
+
+    /// <summary>The folder size is read at most once a minute (a handful of monthly files).</summary>
+    private DiagnosticsView DiagnosticsInfo()
+    {
+        var store = _core.Diagnostics;
+        var now = DateTime.UtcNow;
+        if (_diagnostics == null || now - _diagnosticsAtUtc > TimeSpan.FromMinutes(1))
+        {
+            _diagnostics = new DiagnosticsView(store.Folder ?? "", store.SizeBytes(), "");
+            _diagnosticsAtUtc = now;
+        }
+
+        return _diagnostics with { Problem = store.LastProblem };
+    }
 
     public void PostNow()
     {
@@ -220,7 +247,8 @@ internal sealed class StateBridge : IDisposable
             new SettingsView(_startupChecked, _updates?.AutoInstall ?? false, _demo || _settings.CloudEnabled,
                 UiMapping.RegionSetting(selection)),
             UiMapping.Region(selection, lastTestTarget),
-            UiMapping.Regions(_core.RefData.Current));
+            UiMapping.Regions(_core.RefData.Current),
+            DiagnosticsInfo());
         return UiStateJson.Build(state, _historyJson, includeHistory, _demo ? null : _historyTotal);
     }
 

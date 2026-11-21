@@ -511,6 +511,7 @@ public sealed class ProbeScheduler : IDisposable
     private void RefreshGamePing()
     {
         var rows = CurrentGamePings();
+        _core?.Diagnostics.RecordGamePings(rows);
         lock (_gate)
             _gamePing = rows.Count > 0 ? rows[^1] : null;
     }
@@ -594,6 +595,9 @@ public sealed class ProbeScheduler : IDisposable
                 _testGamePing = null;
             }
         }
+
+        if (!running)
+            _core?.Diagnostics.EndGame();
 
         // The League card shows the in-game ping live, about every 30 s, not only at each test.
         if (running && _core != null)
@@ -685,6 +689,10 @@ public sealed class ProbeScheduler : IDisposable
             }
             catch (Exception ex)
             {
+                bool leagueNow;
+                lock (_gate)
+                    leagueNow = _league;
+                RecordTest("stopped", "Test stopped: " + ex.Message, null, CurrentRegion().Region.Id, leagueNow, null, null);
                 Note("Test stopped: " + ex.Message);
             }
             finally
@@ -734,6 +742,7 @@ public sealed class ProbeScheduler : IDisposable
         // changes: the window says whether the tests already trace that address.
         var match = league && _core != null ? CurrentMatch() : null;
         NoteMatch(match);
+        var regionId = CurrentRegion().Region.Id;
 
         // Each run reads the region at its start.
         var row = _core == null
@@ -753,7 +762,11 @@ public sealed class ProbeScheduler : IDisposable
                 lock (_gate)
                     _gamePing = pings[^1];
             }
+
+            _core?.Diagnostics.RecordGamePings(pings);
         }
+
+        void Save(string outcome, string reason) => RecordTest(outcome, reason, row, regionId, league, match, paired);
         if (row.Cancelled)
         {
             // Cancelled probes are not finished samples. Do not append a partial
@@ -766,9 +779,11 @@ public sealed class ProbeScheduler : IDisposable
                     SetHops(row.Hops);
             }
 
-            Note(row.HasMeasuredData()
+            var cancelNote = row.HasMeasuredData()
                 ? "Test cancelled; partial result was not written to the CSV."
-                : "Test cancelled before it recorded anything.");
+                : "Test cancelled before it recorded anything.";
+            Save("cancelled", cancelNote);
+            Note(cancelNote);
             Publish();
             return;
         }
@@ -782,6 +797,7 @@ public sealed class ProbeScheduler : IDisposable
                 SetHops(row.Hops);
             }
 
+            Save("noReply", "No hops responded; nothing was written to the CSV.");
             Note("No hops responded; nothing was written to the CSV.");
             Publish();
             return;
@@ -804,6 +820,7 @@ public sealed class ProbeScheduler : IDisposable
                 SetHops(row.Hops);
             }
 
+            Save("notSaved", "CSV row not saved: " + ex.Message);
             Note(_csv.Health == LogHealth.Blocked ? LogStatusText.NotSavedNote : "Row not saved: " + ex.Message);
             SaveSettings(row);
             return;
@@ -831,6 +848,7 @@ public sealed class ProbeScheduler : IDisposable
             _tipLastHopIp = row.LastHopIP;
         }
 
+        Save(where == AppendResult.Pending ? "pending" : "saved", "");
         SaveSettings(row);
         if (!string.IsNullOrWhiteSpace(_csv.BackupProblem))
             Note("Row saved. Backup copy could not be refreshed: " + _csv.BackupProblem);
@@ -1181,6 +1199,45 @@ public sealed class ProbeScheduler : IDisposable
         catch
         {
             // The CSV row is the durable record. Settings only restore the window.
+        }
+    }
+
+    /// <summary>Keeps one test in the diagnostics files (never throws, never blocks the test).</summary>
+    private void RecordTest(string outcome, string reason, RouteRow? row, string regionId, bool league, MatchServer? match, GamePing? ping)
+    {
+        if (_core == null)
+            return;
+        try
+        {
+            Dictionary<int, string>? names = null;
+            if (row != null && row.Hops.Count > 0)
+            {
+                names = new Dictionary<int, string>();
+                foreach (var name in RouteClassifier.NameHops(row.Hops, row.HopAsns, RefData.Current))
+                    names[name.Number] = name.Network;
+            }
+
+            _core.Diagnostics.RecordTest(new TestRecord(
+                UtcNow?.Invoke() ?? DateTime.UtcNow, outcome, reason, row, regionId, league, match, ping, names));
+        }
+        catch
+        {
+            // Diagnostics never stop a test.
+        }
+    }
+
+    /// <summary>Writes one line to the activity log (and the window's activity line).</summary>
+    public void NoteActivity(string message) => Note(message);
+
+    /// <summary>Where activity.log and its monthly archives are now, and the CSV's first folder.</summary>
+    public IReadOnlyList<string> ActivityFolders
+    {
+        get
+        {
+            var list = new List<string> { _activityFolder };
+            if (!string.Equals(_csv.PrimaryFolder, _activityFolder, StringComparison.OrdinalIgnoreCase))
+                list.Add(_csv.PrimaryFolder);
+            return list;
         }
     }
 

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using GeckoPeeks.App;
 using GeckoPeeks.Cloud;
+using GeckoPeeks.Logging;
 using GeckoPeeks.Text;
 using GeckoPeeks.Ui.State;
 using GeckoPeeks.Ui.WebHost;
@@ -154,6 +155,128 @@ internal sealed class MainForm : Form
         catch
         {
             _bridge.Toast("Could not copy the folder path.", "bad");
+        }
+    }
+
+    /// <summary>Opens the window on Settings, where the export range is picked.</summary>
+    public void ShowExport()
+    {
+        ShowFromTray();
+        _bridge.ShowPage("settings");
+    }
+
+    private bool _exporting;
+
+    /// <summary>
+    /// Says what the zip holds, asks where to save it, then builds it off the UI thread.
+    /// Nothing is uploaded. A folder Windows protects gives a clear message.
+    /// </summary>
+    public async void ExportDiagnostics(string range)
+    {
+        if (_exporting || !DiagnosticsExport.Ranges.TryGetValue(range, out var choice))
+            return;
+        _exporting = true;
+        try
+        {
+            var ok = MessageBox.Show(this,
+                "The zip will hold, for " + choice.Text.ToLowerInvariant() + ":\n\n"
+                + "- summary.txt: a short plain-text summary\n"
+                + "- every test with each router on the route\n"
+                + "- the route log and the app's activity log\n"
+                + "- saved Cloudflare and Riot status data\n"
+                + "- League's own ping during matches\n\n"
+                + "Check it before you share it: " + DiagnosticsExport.PrivacyText + "\n\n"
+                + "Gecko Peeks saves it on this PC only. Nothing is uploaded.",
+                "Export diagnostics", MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
+            if (ok != DialogResult.OK)
+                return;
+
+            var now = DateTime.Now;
+            using var dialog = new SaveFileDialog
+            {
+                Title = "Save diagnostics",
+                Filter = "Zip file (*.zip)|*.zip",
+                FileName = DiagnosticsExport.DefaultFileName(now),
+                InitialDirectory = ExportFolder(),
+                OverwritePrompt = true,
+                AddExtension = true,
+                DefaultExt = "zip",
+            };
+            if (dialog.ShowDialog(this) != DialogResult.OK)
+                return;
+
+            var snapshot = _scheduler.Capture();
+            var toUtc = DateTime.UtcNow;
+            var request = new ExportRequest(
+                dialog.FileName,
+                choice.Span is { } span ? toUtc - span : null,
+                toUtc,
+                choice.Text,
+                StateBridge.Version,
+                _core.Diagnostics,
+                Array.Empty<RouteRow>(),
+                _scheduler.ActivityFolders,
+                snapshot.RegionText,
+                snapshot.TargetText);
+            _bridge.Toast("Making the diagnostics zip…");
+            var result = await Task.Run(() => DiagnosticsExport.Write(request with { CsvRows = ReadRows() })).ConfigureAwait(true);
+            var name = Path.GetFileName(dialog.FileName);
+            _scheduler.NoteActivity($"Diagnostics saved: {name} ({result.CsvRows} saved tests, {result.Tests} test details).");
+            _bridge.Toast("Saved " + name + ".", "good");
+            OpenSavedFolder(dialog.FileName);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _bridge.Toast("Windows blocked saving there. Controlled folder access may protect that folder. "
+                + "Try Downloads.", "bad");
+            _scheduler.NoteActivity("Diagnostics not saved: " + ex.Message);
+        }
+        catch (IOException ex)
+        {
+            // A full disk, or a zip of the same name open in another app.
+            _bridge.Toast("Could not save the zip: " + ex.Message, "bad");
+            _scheduler.NoteActivity("Diagnostics not saved: " + ex.Message);
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write(ex);
+            _bridge.Toast("Could not make the diagnostics zip.", "bad");
+        }
+        finally
+        {
+            _exporting = false;
+        }
+    }
+
+    private IReadOnlyList<RouteRow> ReadRows()
+    {
+        try
+        {
+            return _scheduler.Log.ReadAll();
+        }
+        catch
+        {
+            return Array.Empty<RouteRow>();
+        }
+    }
+
+    /// <summary>Downloads: Controlled folder access does not protect it by default (Documents and Desktop it does).</summary>
+    private static string ExportFolder()
+    {
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var downloads = string.IsNullOrWhiteSpace(profile) ? "" : Path.Combine(profile, "Downloads");
+        return Directory.Exists(downloads) ? downloads : Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+    }
+
+    private static void OpenSavedFolder(string file)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + file + "\"") { UseShellExecute = false });
+        }
+        catch
+        {
+            // The toast already says where it is.
         }
     }
 
@@ -378,6 +501,10 @@ internal sealed class MainForm : Form
                 break;
             case BridgeCommand.SetSetting when message.Setting is { } setting:
                 ApplySetting(setting, message.Value);
+                break;
+            case BridgeCommand.ExportDiagnostics when message.Range is { } range:
+                // Leave the WebView2 callback before the dialogs open.
+                BeginInvoke(new Action(() => ExportDiagnostics(range)));
                 break;
         }
     }

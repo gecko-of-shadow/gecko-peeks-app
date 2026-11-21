@@ -286,7 +286,7 @@ public class DevIsolationTests
     public void App_project_keeps_production_identity_unless_dev_property_is_set()
     {
         var csproj = File.ReadAllText(AppProjectPath());
-        Assert.Contains("<Version>2.1.4</Version>", csproj, StringComparison.Ordinal);
+        Assert.Contains("<Version>2.1.5</Version>", csproj, StringComparison.Ordinal);
         Assert.Contains("<AssemblyName>GeckoPeeks</AssemblyName>", csproj, StringComparison.Ordinal);
         Assert.Contains(
             "<AssemblyName Condition=\"'$(GeckoPeeksDev)' == 'true'\">GeckoPeeksDev</AssemblyName>",

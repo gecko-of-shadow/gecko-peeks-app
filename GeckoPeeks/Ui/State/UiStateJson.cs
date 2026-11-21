@@ -58,6 +58,16 @@ public static class UiStateJson
             WriteCloud(w, state.Cloud);
             WriteUpdate(w, state.Update);
 
+            var diag = state.Diagnostics ?? new DiagnosticsView("", null, "");
+            w.WriteStartObject("diagnostics");
+            w.WriteString("folder", diag.Folder ?? "");
+            if (diag.Bytes is { } bytes)
+                w.WriteNumber("bytes", bytes);
+            else
+                w.WriteNull("bytes");
+            w.WriteString("problem", diag.Problem ?? "");
+            w.WriteEndObject();
+
             w.WriteStartObject("settings");
             w.WriteBoolean("startWithWindows", state.Settings.StartWithWindows);
             w.WriteBoolean("autoInstallUpdates", state.Settings.AutoInstallUpdates);
@@ -65,6 +75,21 @@ public static class UiStateJson
             w.WriteString("region", SafeRegionSetting(state.Settings.Region));
             w.WriteEndObject();
 
+            w.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(buffer.ToArray());
+    }
+
+    /// <summary>Asks the page to show one of its pages ("settings").</summary>
+    public static string Navigate(string page)
+    {
+        using var buffer = new MemoryStream();
+        using (var w = new Utf8JsonWriter(buffer, Options))
+        {
+            w.WriteStartObject();
+            w.WriteString("type", "navigate");
+            w.WriteString("page", page);
             w.WriteEndObject();
         }
 

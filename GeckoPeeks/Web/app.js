@@ -201,11 +201,35 @@
         progress: numOrNull(u.progress), notes: str(u.notes), releaseUrl: str(u.releaseUrl), error: str(u.error),
         lastCheckUtc: u.lastCheckUtc || null, autoInstall: bool(u.autoInstall)
       },
+      diagnostics: (function (d) {
+        return { folder: str(d.folder), bytes: isNum(d.bytes) && d.bytes >= 0 ? d.bytes : null, problem: str(d.problem) };
+      })(obj(raw.diagnostics)),
       settings: {
         startWithWindows: bool(st.startWithWindows), autoInstallUpdates: bool(st.autoInstallUpdates), cloudEnabled: bool(st.cloudEnabled),
         region: str(st.region) === 'auto' ? 'auto' : (regionId(st.region) || 'auto')
       }
     };
+  }
+
+  // ---------- Diagnostics (Settings) ----------
+  function sizeText(bytes) {
+    if (bytes < 1024) return bytes + ' bytes';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+    return (bytes / 1048576).toFixed(bytes < 10 * 1048576 ? 1 : 0) + ' MB';
+  }
+  function renderDiagnostics() {
+    var d = S.diagnostics || { folder: '', bytes: null, problem: '' };
+    var line = $('#diagLine');
+    if (d.problem) {
+      setText(line, 'Last save problem: ' + d.problem);
+      line.className = 'card-sub ' + toneClass('bad');
+    } else {
+      setText(line, !d.folder ? 'Not kept in this build.'
+        : d.bytes === null ? 'Kept on this PC. Size not known.'
+        : 'Using ' + sizeText(d.bytes) + ' on this PC.');
+      line.className = 'card-sub';
+    }
+    setText($('#diagPath'), d.folder || 'No diagnostics folder.');
   }
 
   // ---------- Region wording ----------
@@ -300,6 +324,14 @@
       render();
     } else if (data.type === 'toast') {
       toast(str(data.text), str(data.tone) || 'normal');
+    } else if (data.type === 'navigate' && PAGES.indexOf(str(data.page)) >= 0) {
+      location.hash = '#/' + data.page;
+      if (data.page === 'settings') {
+        setTimeout(function () {
+          var card = $('#diagCard');
+          if (card) { card.scrollIntoView({ block: 'center' }); var sel = $('#diagRange'); if (sel) sel.focus(); }
+        }, 50);
+      }
     }
   }
   function openUrl(url) {
@@ -1915,6 +1947,7 @@
     setText($('#logPath'), S.log.path || 'The log path appears after the app starts.');
     var hasPath = !!S.log.path;
     $('#btnOpenLog').disabled = !hasPath; $('#btnCopyPath').disabled = !hasPath; $('#btnOpenFolder').disabled = !(S.log.folder || hasPath);
+    renderDiagnostics();
 
     var u = S.update;
     setText($('#verLine'), 'Gecko Peeks ' + S.app.version + (S.app.profile === 'Dev' ? ' · Dev build' : '') + (S.app.demo ? ' · Demo' : ''));
@@ -2004,6 +2037,7 @@
     $('#btnPause').addEventListener('click', function () { send({ cmd: 'togglePause' }); });
     $('#btnOpenLog').addEventListener('click', function () { send({ cmd: 'openLog' }); });
     $('#btnOpenFolder').addEventListener('click', function () { send({ cmd: 'openFolder' }); });
+    $('#btnExport').addEventListener('click', function () { send({ cmd: 'exportDiagnostics', range: $('#diagRange').value }); });
     $('#btnCopyPath').addEventListener('click', function () { send({ cmd: 'copyPath' }); });
     $('#regionSelect').addEventListener('change', function (e) {
       var id = e.target.value === 'auto' ? 'auto' : regionId(e.target.value);
@@ -2190,7 +2224,8 @@
       },
       update: { state: 'upToDate', current: '2.1.0', available: null, progress: null, notes: '', releaseUrl: 'https://github.com/gecko-of-shadow/gecko-peeks-app/releases', error: '',
         lastCheckUtc: new Date(now - 2 * 3600000).toISOString(), autoInstall: true },
-      settings: { startWithWindows: true, autoInstallUpdates: true, cloudEnabled: true, region: 'auto' }
+      settings: { startWithWindows: true, autoInstallUpdates: true, cloudEnabled: true, region: 'auto' },
+      diagnostics: { folder: 'C:\\Users\\Player\\AppData\\Local\\GeckoPeeks\\Diagnostics', bytes: 1843200, problem: '' }
     };
     st.region = mockRegion('na1', true, 'country');
     st.regions = REGIONS.map(function (r) { return { id: r[0], shortName: r[1], name: r[2], serverCity: r[8], cityConfirmed: r[9] }; });
@@ -2304,6 +2339,7 @@
           case 'copyPath': toast('Log path copied', 'good'); break;
           case 'openLog': toast('Opening the log (mock)', 'normal'); break;
           case 'openFolder': toast('Opening the log folder (mock)', 'normal'); break;
+          case 'exportDiagnostics': toast('Export ' + m.range + ' (mock): the app asks where to save the zip', 'normal'); break;
           case 'setSetting':
             if (m.key in st.settings) st.settings[m.key] = !!m.value;
             if (m.key === 'cloudEnabled') {

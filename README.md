@@ -30,6 +30,8 @@ During a match (v2.1.3+), the **League** card shows which server the match conne
 
 From v2.1.4, during a match the **League** card shows your real in-game ping. The app reads it from League's own network log on your PC (`Logs\GameLogs\<time>\<time>_netlog.txt`, about one row every 10 seconds; only the time, ping, loss and jitter are kept, and League itself masks the address). The Route page's **How does this compare with my in-game ping?** card pairs each test with League's ping from the same moment and splits it into the part the app measured and the rest, which it marks as not measured. With no match running you can type the ping League showed you.
 
+From v2.1.5, the app keeps every diagnostic record it makes on your PC and never deletes it: each test with every router, League's own ping during matches, and Cloudflare and Riot status data (see [Diagnostics](#diagnostics)). **Export diagnostics** makes one zip with a short `summary.txt` that you can send to your internet provider or Riot support.
+
 ## Screenshots
 
 | Route | History | Internet |
@@ -64,16 +66,17 @@ Get-FileHash "$env:LOCALAPPDATA\Programs\GeckoPeeks\GeckoPeeks.exe" -Algorithm S
 - Left-click or double-click the gecko in the tray to open the window. Right-click it for the menu. Windows 11 can hide the icon under the **^** arrow.
 - Close (X) hides the window. Testing and logging continue in the tray. To stop the app, select **Exit** in the tray menu.
 - Run the exe again to bring the window forward. Only one copy runs at a time.
-- The tray menu has: Open window, Run test now, Copy diagnosis, Open log, Open log folder, Pause logging, Start with Windows, Check for updates (or Install update), Exit.
+- The tray menu has: Open window, Run test now, Copy diagnosis, Open log, Open log folder, Export diagnostics, Pause logging, Start with Windows, Check for updates (or Install update), Exit.
 - **Pause logging** also stops the automatic tests. **Run test now** still works. The item then changes to **Resume logging**.
 - **Copy diagnosis** puts a text report on the clipboard. It has the version, time, route, last hop, Riot ICMP, League, region, target, adapter, Wi-Fi, gateway, VPN and the hop list. The hop list shows your ISP's routers, which can show your ISP and town. Check the report before you post it in public.
+- **Export diagnostics** (Settings > Diagnostics, or the tray menu) asks for a time range (last hour, 24 hours, 7 days or everything) and a folder, then saves one zip. The app says what is in it before it saves.
 
 ### Uninstall
 
 1. In **Settings**, turn off **Start with Windows**.
 2. Right-click the gecko and select **Exit**.
 3. Delete the folder `%LOCALAPPDATA%\Programs\GeckoPeeks`.
-4. To remove all app data, delete `%LOCALAPPDATA%\GeckoPeeks`. It holds the settings, caches and WebView2 data.
+4. To remove all app data, delete `%LOCALAPPDATA%\GeckoPeeks`. It holds the settings, caches, WebView2 data and the `Diagnostics` folder.
 5. Your log is in `Documents\RiotRouteLog`, or in `%LOCALAPPDATA%\GeckoPeeks\RiotRouteLog` if Windows blocked Documents. Delete it if you do not want it.
 
 If you exited the app before step 1, this command removes the startup entry. If the entry is already gone, the command shows an error that you can ignore:
@@ -154,6 +157,8 @@ Gecko Peeks has no account, no analytics and no telemetry.
 
 The app does not send CSV rows. It sends only the public router addresses in them, as listed above. It sends no adapter name, no Wi-Fi name, no PC name and no user name.
 
+The Diagnostics files and an exported zip stay on your PC. The app never uploads them. Send a zip only to someone you choose.
+
 Like any web request, each HTTPS call shows your public IP address to the service that answers it. The Worker code does not log requests. Cloudflare Workers logs and traces are on for the Worker. So Cloudflare keeps a record of each request for the Worker's owner. This record can include your public IP and the request URL, with any router addresses in it.
 
 Turn off **Cloudflare live data** to stop all the calls in the table. The window then shows no Radar data and no Riot status. Routers are named from Windows DNS and from ASNs saved in the last 30 days. The region does not change by itself. Tests, logging and updates still work.
@@ -168,10 +173,10 @@ Data on the Internet page and in the Internet pulse comes from [Cloudflare Radar
 Documents\RiotRouteLog\riot-route-log.csv
 ```
 
-The CSV is UTF-8. The app adds one row for each finished test. A cancelled test, or a test where no router answered, adds no row. The app only adds rows. It never deletes or rotates them.
+The CSV is UTF-8. The app adds one row for each finished test. A cancelled test, or a test where no router answered, adds no row (from v2.1.5 it is still kept in the Diagnostics files). The app only adds rows. It never deletes or rotates them.
 
 - If Excel or another app has the file open, new rows wait in `riot-route-log.pending.csv`. The next row saved to the main CSV brings them back.
-- The folder also holds `riot-route-log.backup.csv`, `gecko-peeks-settings.json` and a short `activity.log`.
+- The folder also holds `riot-route-log.backup.csv`, `gecko-peeks-settings.json` and `activity.log`. From v2.1.5, `activity.log` keeps its newest 400 lines and older lines move to monthly files (`activity-YYYY-MM.log`). None are deleted.
 - If Windows refuses writes in Documents (Controlled Folder Access), the log moves to `%LOCALAPPDATA%\GeckoPeeks\RiotRouteLog`. The app copies the earlier rows first. The settings file and `activity.log` move too. The log then stays there. The Documents copy stays as it was and gets no new rows.
 - If no folder accepts writes, the **Logging** chip shows **Blocked** in red. Up to 1,000 new rows then wait in memory. They are lost if you close the app. Make sure `%LOCALAPPDATA%\GeckoPeeks` accepts writes. Keep Controlled Folder Access on.
 
@@ -183,6 +188,16 @@ Columns: `Timestamp, LeagueRunning, Upstream, HandoffNetwork, HandoffHost, Hando
 - `Adapter` is the adapter Windows uses to reach the target. `Vpn` is `Y` when that adapter is a known VPN tunnel (WireGuard, OpenVPN, Tailscale and similar).
 - `Wifi` is the Wi-Fi network name. `Gateway` is your router's address. `FullPath` lists every hop address. Check these before you share the CSV.
 - Rows from v1.0.12 and older have only the first 17 columns. The app widens the header one time.
+
+### Diagnostics
+
+From v2.1.5 the app also keeps JSON lines (one record per line, times in UTC) in `%LOCALAPPDATA%\GeckoPeeks\Diagnostics`, one file per month:
+
+- `tests-YYYY-MM.jsonl`: every test, also cancelled and failed ones, with the outcome, each router (address, name, time, ASN, network name), the test target, the region, the League match server and League's own ping from the same moment.
+- `league-YYYY-MM.jsonl`: League's own ping, loss and jitter during a match, about every 10 seconds. Never an address, and never League's `netstats` file.
+- `cloud-YYYY-MM.jsonl`: Cloudflare and Riot status answers, only when they changed (needs Cloudflare live data on).
+
+Settings > Diagnostics shows the space they use. The app never deletes them. Delete the folder yourself if you want them gone.
 
 ## How routes are named
 
