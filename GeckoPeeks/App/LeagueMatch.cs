@@ -12,6 +12,12 @@ public sealed record MatchServer(string Ip, int Port)
 }
 
 /// <summary>
+/// One row of League's own network log (Logs\GameLogs\&lt;start&gt;\&lt;start&gt;_netlog.txt), about every
+/// 10 s during a match: League's in-game ping, the reliable-packet loss % and jitter in that window.
+/// </summary>
+public sealed record GamePing(int PingMs, double LossPct, int JitterMs, int LatencyWindowMs, DateTime AtUtc, long GameTimeMs, bool Reconnect);
+
+/// <summary>
 /// Reads which server the current League match connected to. League writes it in its own match log
 /// (Logs\GameLogs\&lt;start time&gt;\&lt;start time&gt;_r3dlog.txt) as "ServerAddress(a.b.c.d:port)".
 /// The file is only read, shared, on this PC; the game process is never touched. Only the server
@@ -139,6 +145,131 @@ public static class LeagueMatch
         {
             return null;
         }
+    }
+
+    // ---------- In-game ping from League's own network log ----------
+
+    /// <summary>A netlog not written for this long is not a live match (League writes a row about every 10 s).</summary>
+    public static readonly TimeSpan MaxPingAge = TimeSpan.FromSeconds(60);
+
+    /// <summary>The netlog grows about 30 KB an hour; only its end is read for the latest rows.</summary>
+    public const int MaxNetlogTailBytes = 64 * 1024;
+
+    /// <summary>Columns per data row in League's netlog (the header lists them; League masks the address as X.X.X.X).</summary>
+    public const int NetlogColumns = 24;
+
+    /// <summary>
+    /// The data rows of a netlog text, oldest first. Header lines ("time: text") and malformed rows are
+    /// skipped. Only time, ping, loss %, jitter, latency window and the reconnect flag are kept; the
+    /// address column is never kept. <paramref name="lastWriteUtc"/> is when the newest row was written,
+    /// so each row's wall time is the last write minus its distance in game time from the newest row.
+    /// </summary>
+    public static IReadOnlyList<GamePing> ParseNetlog(string? text, DateTime lastWriteUtc)
+    {
+        var rows = new List<(long T, GamePing P)>();
+        if (string.IsNullOrEmpty(text))
+            return Array.Empty<GamePing>();
+        foreach (var raw in text.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0 || !char.IsDigit(line[0]))
+                continue;
+            var f = line.Split(',');
+            if (f.Length != NetlogColumns)
+                continue;
+            if (!long.TryParse(f[0], NumberStyles.None, CultureInfo.InvariantCulture, out var t)
+                || !int.TryParse(f[8], NumberStyles.None, CultureInfo.InvariantCulture, out var ping)
+                || !int.TryParse(f[14], NumberStyles.None, CultureInfo.InvariantCulture, out var window)
+                || !double.TryParse(f[15], NumberStyles.Float, CultureInfo.InvariantCulture, out var loss)
+                || !int.TryParse(f[16], NumberStyles.None, CultureInfo.InvariantCulture, out var jitter))
+                continue;
+            if (ping is < 0 or > 10000 || window is < 0 or > 10000 || !double.IsFinite(loss) || loss is < 0 or > 100 || jitter is < 0 or > 10000)
+                continue;
+            var reconnect = f[23].Trim() == "1";
+            rows.Add((t, new GamePing(ping, loss, jitter, window, DateTime.MinValue, t, reconnect)));
+        }
+
+        if (rows.Count == 0)
+            return Array.Empty<GamePing>();
+
+        // If League's game clock went back inside one log (a reset), only the rows after the last
+        // reset share a time base with the newest row.
+        var from = 0;
+        for (var i = 1; i < rows.Count; i++)
+        {
+            if (rows[i].T < rows[i - 1].T)
+                from = i;
+        }
+
+        if (from > 0)
+            rows = rows.GetRange(from, rows.Count - from);
+        var lastT = rows[^1].T;
+        return rows.Select(r => r.P with { AtUtc = lastWriteUtc - TimeSpan.FromMilliseconds(Math.Max(0, lastT - r.T)) }).ToArray();
+    }
+
+    /// <summary>
+    /// The netlog rows of the running match (newest *_netlog.txt, same folder rules as <see cref="Current"/>),
+    /// or empty when there is none or it was not written in the last <see cref="MaxPingAge"/>.
+    /// </summary>
+    public static IReadOnlyList<GamePing> CurrentPings(string? gameLogs, DateTime utcNow, DateTime? gameStartedUtc)
+    {
+        if (string.IsNullOrWhiteSpace(gameLogs))
+            return Array.Empty<GamePing>();
+        try
+        {
+            var log = new DirectoryInfo(gameLogs)
+                .EnumerateDirectories()
+                .OrderByDescending(d => d.LastWriteTimeUtc)
+                .Take(3)
+                .SelectMany(d => d.EnumerateFiles("*_netlog.txt"))
+                .OrderByDescending(f => f.LastWriteTimeUtc)
+                .FirstOrDefault();
+            if (log == null || utcNow - log.LastWriteTimeUtc > MaxPingAge)
+                return Array.Empty<GamePing>();
+            if (gameStartedUtc is { } started && log.CreationTimeUtc < started - StartSlack)
+                return Array.Empty<GamePing>();
+            return ParseNetlog(ReadTail(log.FullName, MaxNetlogTailBytes), log.LastWriteTimeUtc);
+        }
+        catch
+        {
+            return Array.Empty<GamePing>();
+        }
+    }
+
+    /// <summary>The row nearest to <paramref name="atUtc"/>, if one is within <paramref name="within"/>.</summary>
+    public static GamePing? Nearest(IReadOnlyList<GamePing> rows, DateTime atUtc, TimeSpan within)
+    {
+        GamePing? best = null;
+        var bestGap = TimeSpan.MaxValue;
+        foreach (var row in rows)
+        {
+            var gap = (row.AtUtc - atUtc).Duration();
+            // On a tie the later row wins (rows are oldest first).
+            if (gap <= within && gap <= bestGap)
+            {
+                best = row;
+                bestGap = gap;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>The end of a file that League may still be writing; a cut first line is dropped.</summary>
+    private static string ReadTail(string path, int maxBytes)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        var start = Math.Max(0, stream.Length - maxBytes);
+        stream.Seek(start, SeekOrigin.Begin);
+        using var reader = new StreamReader(stream, System.Text.Encoding.UTF8);
+        var text = reader.ReadToEnd();
+        if (start > 0)
+        {
+            var cut = text.IndexOf('\n');
+            text = cut >= 0 ? text[(cut + 1)..] : "";
+        }
+
+        return text;
     }
 
     /// <summary>Reads the start of a file that League may still be writing.</summary>

@@ -28,6 +28,8 @@ The 5-minute rate starts when the game process (`League of Legends.exe`) runs. T
 
 During a match (v2.1.3+), the **League** card shows which server the match connected to, for example `In a match · Game server 192.207.0.5:7363 · the test target`. The app reads it from League's own match log on your PC (`Logs\GameLogs\<time>\<time>_r3dlog.txt`, the `ServerAddress(...)` line only) and reads the game's start time to skip logs from earlier matches. It never opens or changes the game, and the test target does not change. Past a Riot Direct entry address, Riot carries the game on its own network, so in-game ping is usually higher than the app's figures.
 
+From v2.1.4, during a match the **League** card shows your real in-game ping. The app reads it from League's own network log on your PC (`Logs\GameLogs\<time>\<time>_netlog.txt`, about one row every 10 seconds; only the time, ping, loss and jitter are kept, and League itself masks the address). The Route page's **How does this compare with my in-game ping?** card pairs each test with League's ping from the same moment and splits it into the part the app measured and the rest, which it marks as not measured. With no match running you can type the ping League showed you.
+
 ## Screenshots
 
 | Route | History | Internet |

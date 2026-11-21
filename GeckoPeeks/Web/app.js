@@ -50,6 +50,12 @@
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function hhmm(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
   function dayLabel(d) { return MON[d.getMonth()] + ' ' + d.getDate(); }
+  // League's own in-game ping row (its netlog), or null.
+  function gamePingOf(g) {
+    if (!g || typeof g !== 'object' || !isNum(g.ms)) return null;
+    var at = parseIso(g.atUtc);
+    return { ms: g.ms, lossPct: isNum(g.lossPct) ? g.lossPct : null, jitterMs: isNum(g.jitterMs) ? g.jitterMs : null, at: at, reconnect: g.reconnect === true };
+  }
   // With the year when it is not this year, so "since Nov 3" never hides a year.
   function dayLabelY(d) { return dayLabel(d) + (d.getFullYear() !== new Date().getFullYear() ? ', ' + d.getFullYear() : ''); }
   // True when the host left the oldest tests out of the history it sent.
@@ -140,6 +146,7 @@
       probe: {
         paused: bool(p.paused), leagueRunning: bool(p.leagueRunning), testRunning: bool(p.testRunning),
         matchServer: str(p.matchServer), matchSameAsTarget: bool(p.matchSameAsTarget),
+        gamePing: gamePingOf(p.gamePing), testGamePing: gamePingOf(p.testGamePing), testLastHopIp: str(p.testLastHopIp),
         phase: str(p.phase), mode: str(p.mode), nextDueUtc: p.nextDueUtc || null, lastError: str(p.lastError),
         activityLine: str(p.activityLine), hasRoute: bool(p.hasRoute), routeLine: str(p.routeLine),
         upstream: str(p.upstream), handoffNetwork: str(p.handoffNetwork), handoffCity: str(p.handoffCity),
@@ -547,11 +554,24 @@
     kpi('kpiLoss', isNum(loss) ? [String(Math.round(loss * 10) / 10), h('small', { text: '%' })] : '—',
       !isNum(loss) ? 'muted' : loss === 0 ? 'good' : loss < 10 ? 'warn' : 'bad',
       isNum(p.riot.lossPct) ? 'Last hop · Riot ' + pct(p.riot.lossPct) : 'Last hop');
-    // In a match: the server the game connected to (League's own match log).
-    kpi('kpiLeague', p.leagueRunning ? (p.matchServer ? 'In a match' : 'Running') : 'Not running', 'text' + (p.leagueRunning ? ' good' : ''),
-      p.leagueRunning && p.matchServer
-        ? 'Game server ' + p.matchServer + (p.matchSameAsTarget ? ' · the test target' : ' · not the test target')
-        : p.mode || (p.leagueRunning ? 'Tests every 5 min' : 'Tests every 15 min'));
+    // In a match: League's own in-game ping (its netlog) and the server the game connected to (its match log).
+    var gp = p.leagueRunning ? p.gamePing : null;
+    kpi('kpiLeague',
+      gp ? Math.round(gp.ms) + ' ms' : p.leagueRunning ? (p.matchServer ? 'In a match' : 'Running') : 'Not running',
+      'text' + (p.leagueRunning ? ' good' : ''),
+      gp
+        ? 'In-game ping (League)' + (p.matchServer ? ' · server ' + p.matchServer : '')
+        : p.leagueRunning && p.matchServer
+          ? 'Game server ' + p.matchServer + (p.matchSameAsTarget ? ' · the test target' : ' · not the test target')
+          : p.mode || (p.leagueRunning ? 'Tests every 5 min' : 'Tests every 15 min'));
+    // The link to the comparison shows only when there is a measured figure to compare.
+    var pel = $('#pingExplainLink');
+    if (pel) pel.parentNode.hidden = !(p.hasRoute && (isNum(p.lastHop.avgMs) || isNum(p.riot.avgMs)));
+    var kl = $('#kpiLeague');
+    if (kl) kl.title = gp
+      ? 'League’s own network log: ping ' + Math.round(gp.ms) + ' ms' + (isNum(gp.lossPct) ? ', loss ' + gp.lossPct + '%' : '')
+        + (isNum(gp.jitterMs) ? ', jitter ' + gp.jitterMs + ' ms' : '') + (gp.at ? ', at ' + hhmm(gp.at) : '') + '.'
+      : '';
     var adapterSub = [];
     if (p.adapter || p.vpn) adapterSub.push(h('span', { class: 'badge ' + (p.vpn ? 'warn' : ''), text: p.vpn ? 'VPN ON' : 'NO VPN' }));
     if (p.wifi) adapterSub.push(h('span', { text: p.wifi }));
@@ -1365,8 +1385,145 @@
 
   // ---------- Route page ----------
   var hopSig = '';
+  // ---------- "How does this compare with my in-game ping?" (Route page) ----------
+  // Built from live data only: the region, the traced address, the match server, the last test and,
+  // during a match, League's own in-game ping (its netlog on this PC). With no match running the user
+  // can type the ping League showed; that number is kept in memory only, never shown as current later.
+  var typedGamePing = null, typedInvalid = false;
+  var TEST_OLD_MS = 20 * 60000;
+  // What the last test measured, and up to which address.
+  function measuredPart() {
+    var p = S.probe;
+    if (!p.hasRoute || !p.testTimestamp) return null;
+    var tested = testedTarget();
+    var ip = tested ? tested.ip : (S.region.target.ip || '');
+    if (isNum(p.riot.avgMs)) return { ms: p.riot.avgMs, atTarget: true, point: ip, regionChanged: !!tested };
+    if (isNum(p.lastHop.avgMs)) {
+      // The router the saved last-hop figure belongs to (not the live hop list, which can be newer).
+      return { ms: p.lastHop.avgMs, atTarget: false, point: p.testLastHopIp || '', regionChanged: !!tested };
+    }
+    return null;
+  }
+  function testDate() { var p = S.probe; return p.testTimestamp ? parseLocal(p.testTimestamp) : null; }
+  function whenText(d) {
+    if (!d) return '';
+    var today = new Date().toDateString() === d.toDateString();
+    return (today ? '' : DOW[d.getDay()] + ' ' + dayLabelY(d) + ', ') + hhmm(d);
+  }
+  function testIsOld() {
+    var d = testDate();
+    return S.probe.paused || !d || Date.now() - d.getTime() > TEST_OLD_MS;
+  }
+  function pingExplainParas() {
+    var p = S.probe, rg = S.region, tg = rg.target || {};
+    var city = rg.serverCity && rg.cityConfirmed ? ' in ' + rg.serverCity : '';
+    var entry = tg.kind === 'anycast';
+    var gp = p.leagueRunning ? p.gamePing : null;
+    var m = measuredPart();
+    var d = testDate();
+    var paras = [];
+    // Name the region's server and city only when the match uses the region target or no match server is known.
+    var server = p.leagueRunning && p.matchServer && !p.matchSameAsTarget
+      ? 'the game server of your match'
+      : 'the ' + (rg.shortName ? rg.shortName + ' ' : '') + 'game server' + city;
+    if (gp) {
+      paras.push('League measures in-game ping itself, from this PC to ' + server + ', and writes it to its own network log on this PC about every 10 seconds. Gecko Peeks only reads that log. Latest: '
+        + Math.round(gp.ms) + ' ms' + (isNum(gp.lossPct) ? ', loss ' + gp.lossPct + '%' : '') + (isNum(gp.jitterMs) ? ', jitter ' + gp.jitterMs + ' ms' : '')
+        + (gp.at ? ' (' + hhmm(gp.at) + ')' : '') + '.');
+    } else if (p.leagueRunning) {
+      paras.push('League measures in-game ping itself, from this PC to ' + server + ', and writes it to its own network log during a match. No match ping was written in the last minute, so none is shown.');
+    } else {
+      paras.push('League measures in-game ping itself, from this PC to ' + server + '. During a match Gecko Peeks reads it from League’s own network log on this PC. No match is running now: you can type the ping League showed you below.');
+    }
+    var tested = testedTarget();
+    var reach;
+    if (!m) {
+      reach = p.hasRoute ? 'The last test has no latency figure, so nothing is measured to compare.' : 'No test has run yet, so nothing is measured yet.';
+    } else if (m.regionChanged) {
+      reach = 'The last test traced ' + tested.ip + ', before the region changed' + (rg.shortName ? ' to ' + rg.shortName : '') + '. The next test traces '
+        + (tg.ip || 'the new target') + '; the comparison waits for it.';
+    } else if (m.atTarget) {
+      reach = 'Gecko Peeks measures your path up to the ' + (tg.label || 'Riot address') + (m.point ? ' ' + m.point : '') + ': ' + Math.round(m.ms) + ' ms in the test at ' + whenText(d)
+        + ' (that address answered ping). ' + (entry ? 'That is where Riot’s own network starts; traceroute cannot see past it.' : 'Traceroute cannot see past it.');
+    } else {
+      reach = 'Riot did not answer ping in the test at ' + whenText(d) + ', so Gecko Peeks measures up to the last router that answered' + (m.point ? ' (' + m.point + ')' : '')
+        + ': ' + Math.round(m.ms) + ' ms. Traceroute cannot see past the routers that stay silent.';
+    }
+    if (p.leagueRunning && p.matchServer) {
+      reach += p.matchSameAsTarget
+        ? ' Your current match connected to ' + p.matchServer + ', the address the tests trace.'
+        : ' Your current match connected to ' + p.matchServer + ', a different address that the tests do not trace.';
+    }
+    if (m && !m.regionChanged && testIsOld()) {
+      reach += ' This test is from ' + whenText(d) + (p.paused ? ' and logging is paused' : '') + ', so it may not match the game right now.';
+    }
+    paras.push(reach);
+    paras.push('How to use it: compare figures from the same minute. If in-game ping rises while the measured part stays flat, the extra delay is past the measured point. If both rise together, the cause is most likely on your side of the path: your home network, your ISP or its upstream.');
+    return paras;
+  }
+  // The split: League's ping at the test time (or the typed ping with no match) = measured part + the rest.
+  function pingSplit() {
+    var p = S.probe, tg = S.region.target || {};
+    var m = measuredPart();
+    var gp = p.leagueRunning ? p.gamePing : null;
+    var paired = p.leagueRunning ? p.testGamePing : null;
+    var game = null, source = '';
+    if (paired) { game = Math.round(paired.ms); source = 'League’s ping at that test' + (paired.at ? ' (' + hhmm(paired.at) + ')' : ''); }
+    else if (gp) return { msg: 'League’s log has no ping from the time of the last test. A test run during the match is compared with League’s ping from the same moment.' };
+    else if (typedInvalid) return { msg: 'Type a whole number from 1 to 999.' };
+    else if (isNum(typedGamePing)) { game = typedGamePing; source = 'the ' + typedGamePing + ' ms you typed'; }
+    else return { msg: 'Type it to split it into the measured part and the rest.', muted: true };
+    if (!m) return { msg: 'Nothing is measured yet, so the split waits for a test with a figure.' };
+    if (m.regionChanged) return { msg: 'The last test traced the old region’s address, so the split waits for a test to the new one.' };
+    if (!paired && testIsOld()) return { msg: 'The last test is from ' + whenText(testDate()) + (p.paused ? ' and logging is paused' : '') + '. Run a test while the game shows this ping, then compare.' };
+    var mine = Math.round(m.ms), rest = game - mine;
+    if (rest < 0) return { msg: (paired ? 'League’s figure (' + game + ' ms)' : 'The ' + game + ' ms you typed') + ' is lower than the measured part (' + mine + ' ms). They are not from the same moment or path; compare figures from the same minute.' };
+    var mineLabel = m.atTarget ? 'Up to ' + (m.point || 'the traced address') + ' (measured)' : 'Up to the last router that answered' + (m.point ? ' (' + m.point + ')' : '') + ' (measured)';
+    var sameServer = !(p.leagueRunning && p.matchServer) || p.matchSameAsTarget;
+    var restLabel = m.atTarget && tg.kind === 'anycast' && sameServer
+      ? 'The rest: Riot’s network past ' + (m.point || 'that address') + ' and the server’s own time (not measured)'
+      : 'The rest: past the measured point, including the server’s own time (not measured)';
+    return { game: game, mine: mine, rest: rest, mineLabel: mineLabel, restLabel: restLabel, source: source };
+  }
+  function renderPingExplain() {
+    var box = $('#pingExplainText');
+    if (!box) return;
+    var paras = pingExplainParas();
+    var sig = paras.join('|');
+    if (box.__sig !== sig) {
+      box.__sig = sig;
+      clear(box);
+      paras.forEach(function (t) { box.appendChild(h('p', { text: t })); });
+    }
+    // The typed box is only for when League's own ping is not available.
+    var live = S.probe.leagueRunning && (S.probe.gamePing || S.probe.testGamePing);
+    var lbl = $('#pingInputLabel'), row = $('#pingInputRow');
+    if (lbl) lbl.hidden = !!live;
+    if (row) row.hidden = !!live;
+    renderPingSplit();
+  }
+  function renderPingSplit() {
+    var out = $('#pingSplitOut');
+    if (!out) return;
+    var s = pingSplit();
+    var sig = JSON.stringify(s);
+    if (out.__sig === sig) return;
+    out.__sig = sig;
+    clear(out);
+    if (s.msg) { out.appendChild(h('span', { class: s.muted ? 'muted' : '', text: s.msg })); return; }
+    var total = Math.max(1, s.game);
+    out.appendChild(h('div', { class: 'split-bar', role: 'img', 'aria-label': s.mineLabel + ' ' + s.mine + ' ms, ' + s.restLabel + ' ' + s.rest + ' ms' },
+      h('i', { class: 'split-mine', style: 'width:' + (s.mine / total * 100).toFixed(1) + '%' }),
+      h('i', { class: 'split-riot', style: 'width:' + (s.rest / total * 100).toFixed(1) + '%' })));
+    out.appendChild(h('div', { class: 'split-legend' },
+      h('span', {}, h('i', { class: 'sw split-mine' }), s.mineLabel + ': ' + s.mine + ' ms'),
+      h('span', {}, h('i', { class: 'sw split-riot' }), s.restLabel + ': ' + s.rest + ' ms')));
+    out.appendChild(h('div', { class: 'split-src', text: 'Total ' + s.game + ' ms: ' + s.source + '.' }));
+  }
+
   function renderRoute() {
     var p = S.probe;
+    renderPingExplain();
     // The table shows the last test. After a region change its target is not the region target,
     // so the subtitle and the Target chip name the tested address, and a note names the next one.
     var tested = testedTarget();
@@ -1824,6 +1981,22 @@
 
   // ---------- Wire up ----------
   function wire() {
+    $('#pingInput').addEventListener('input', function (e) {
+      var raw = String(e.target.value || '').trim();
+      var ok = /^\d{1,3}$/.test(raw) && +raw >= 1 && +raw <= 999;
+      typedGamePing = ok ? +raw : null;
+      typedInvalid = raw.length > 0 && !ok;
+      renderPingSplit();
+    });
+    // The Overview link opens the explainer on the Route page.
+    $('#pingExplainLink').addEventListener('click', function () {
+      setTimeout(function () {
+        var d = $('#pingExplain');
+        if (!d) return;
+        d.open = true;
+        d.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }, 60);
+    });
     $('#btnRunTop').addEventListener('click', function () { send({ cmd: 'runNow' }); });
     $('#btnRunRoute').addEventListener('click', function () { send({ cmd: 'runNow' }); });
     $('#btnCopyDiag').addEventListener('click', function () { send({ cmd: 'copyDiagnosis' }); });
@@ -2085,6 +2258,9 @@
       st.probe.leagueRunning = true; st.probe.mode = 'Tests every 5 min';
       st.probe.matchServer = variant === 'match' ? '192.207.0.5:7363' : '192.207.0.9:7363';
       st.probe.matchSameAsTarget = variant === 'match';
+      // League's own netlog ping (demo values), and the row paired with the shown test.
+      st.probe.gamePing = { ms: 58, lossPct: 0, jitterMs: 2, atUtc: new Date(now - 4000).toISOString(), reconnect: false };
+      st.probe.testGamePing = { ms: 57, lossPct: 0, jitterMs: 3, atUtc: new Date(now - 3 * 60000 + 20000).toISOString(), reconnect: false };
     } else if (variant === 'vpn') {
       st.probe.vpn = true; st.probe.adapter = 'WireGuard Tunnel'; st.probe.leagueRunning = true; st.probe.mode = 'Tests every 5 min';
       st.probe.nextDueUtc = new Date(now + 3 * 60000).toISOString();

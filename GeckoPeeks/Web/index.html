@@ -84,6 +84,7 @@
       <div class="kpi" id="kpiAdapter"><div class="kpi-label">Adapter</div><div class="kpi-value">—</div><div class="kpi-sub"></div></div>
       <div class="kpi" id="kpiNext"><div class="kpi-label">Next test</div><div class="kpi-value">—</div><div class="kpi-sub"></div></div>
     </div>
+    <p class="kpi-note" hidden><a href="#/route" id="pingExplainLink" class="link-quiet">How does this compare with my in-game ping?</a></p>
 
     <div class="card map-card">
       <div class="map" id="map" aria-label="Route map" role="img"></div>
@@ -163,6 +164,20 @@
       <div class="empty" id="hopEmpty" hidden></div>
       <p class="table-foot" id="hopFoot"></p>
     </div>
+    <details class="card explain-card" id="pingExplain">
+      <summary><span class="explain-title">How does this compare with my in-game ping?</span><svg class="ico ico-sm explain-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></summary>
+      <div class="explain-body">
+        <div id="pingExplainText"></div>
+        <div class="ping-split">
+          <label for="pingInput" id="pingInputLabel">The ping League shows you</label>
+          <div class="ping-input-row" id="pingInputRow">
+            <input id="pingInput" type="number" inputmode="numeric" min="1" max="999" step="1" placeholder="e.g. 60" aria-label="The ping League shows you, in ms" aria-describedby="pingSplitOut">
+            <span class="ping-unit">ms</span>
+          </div>
+          <div class="ping-split-out" id="pingSplitOut" aria-live="polite"></div>
+        </div>
+      </div>
+    </details>
   </section>
 
   <!-- History -->

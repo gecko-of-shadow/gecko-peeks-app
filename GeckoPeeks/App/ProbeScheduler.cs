@@ -89,6 +89,15 @@ public sealed class ProbeSnapshot
 
     /// <summary>True when the match server is the region target the tests trace anyway.</summary>
     public bool MatchSameAsTarget { get; init; }
+
+    /// <summary>League's own newest in-game ping row (its netlog) while a match runs, else null.</summary>
+    public GamePing? GamePing { get; init; }
+
+    /// <summary>League's in-game ping row nearest to the shown test (within 30 s), else null.</summary>
+    public GamePing? TestGamePing { get; init; }
+
+    /// <summary>The last-hop address of the shown (saved) test, the router its last-hop figure belongs to.</summary>
+    public string TestLastHopIp { get; init; } = "";
 }
 
 /// <summary>
@@ -163,6 +172,10 @@ public sealed class ProbeScheduler : IDisposable
     private string? _gameLogs;
     private DateTime _gameLogsCheckedUtc = DateTime.MinValue;
     private DateTime? _gameStartedUtc;
+    // v2.1.4: League's in-game ping (its own netlog): the newest row, and the row nearest the last test.
+    private GamePing? _gamePing;
+    private GamePing? _testGamePing;
+    private string _tipLastHopIp = "";
 
     /// <summary>Test seam: where League's match logs are, and the clock. Null uses the real ones.</summary>
     internal Func<string?>? FindGameLogs { get; set; }
@@ -464,6 +477,48 @@ public sealed class ProbeScheduler : IDisposable
     {
         try
         {
+            var (logs, now, started) = MatchLogs();
+            return started is { } since ? LeagueMatch.Current(logs, now, since) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// League's in-game ping rows of the running match (League's own netlog), else empty. Read every
+    /// 30 s while the game runs, and after each test to pair the test with League's ping at that time.
+    /// </summary>
+    private IReadOnlyList<GamePing> CurrentGamePings()
+    {
+        try
+        {
+            bool league;
+            lock (_gate)
+                league = _league;
+            if (!league || _core == null)
+                return Array.Empty<GamePing>();
+            var (logs, now, started) = MatchLogs();
+            return started is { } since ? LeagueMatch.CurrentPings(logs, now, since) : Array.Empty<GamePing>();
+        }
+        catch
+        {
+            return Array.Empty<GamePing>();
+        }
+    }
+
+    private void RefreshGamePing()
+    {
+        var rows = CurrentGamePings();
+        lock (_gate)
+            _gamePing = rows.Count > 0 ? rows[^1] : null;
+    }
+
+    /// <summary>League's GameLogs folder, the time now and the running game's start time (once per game).</summary>
+    private (string? Logs, DateTime Now, DateTime? Started) MatchLogs()
+    {
+        {
             var now = UtcNow?.Invoke() ?? DateTime.UtcNow;
             string? logs;
             lock (_gate)
@@ -491,11 +546,7 @@ public sealed class ProbeScheduler : IDisposable
                     _gameStartedUtc = started;
             }
 
-            return started is { } since ? LeagueMatch.Current(logs, now, since) : null;
-        }
-        catch
-        {
-            return null;
+            return (logs, now, started);
         }
     }
 
@@ -539,7 +590,23 @@ public sealed class ProbeScheduler : IDisposable
                 _match = null;
                 _matchNoted = "";
                 _gameStartedUtc = null;
+                _gamePing = null;
+                _testGamePing = null;
             }
+        }
+
+        // The League card shows the in-game ping live, about every 30 s, not only at each test.
+        if (running && _core != null)
+        {
+            GamePing? before;
+            lock (_gate)
+                before = _gamePing;
+            RefreshGamePing();
+            GamePing? after;
+            lock (_gate)
+                after = _gamePing;
+            if (!changed && !Equals(before, after))
+                Publish();
         }
 
         if (!changed)
@@ -672,6 +739,21 @@ public sealed class ProbeScheduler : IDisposable
         var row = _core == null
             ? await TestRunner.RunAsync(league, progress, cancellationToken).ConfigureAwait(false)
             : await TestRunner.RunAsync(_core.BuildRequest(league), progress, cancellationToken).ConfigureAwait(false);
+
+        // During a match, find League's own ping from the same moment (the netlog row nearest to the
+        // end of the test, where its pings run; at most 30 s apart). It is kept only together with
+        // the saved test it belongs to (see Remember below), never with an older shown test.
+        GamePing? paired = null;
+        {
+            var pings = !row.Cancelled && league ? CurrentGamePings() : Array.Empty<GamePing>();
+            var endUtc = UtcNow?.Invoke() ?? DateTime.UtcNow;
+            paired = LeagueMatch.Nearest(pings, endUtc, TimeSpan.FromSeconds(30));
+            if (pings.Count > 0)
+            {
+                lock (_gate)
+                    _gamePing = pings[^1];
+            }
+        }
         if (row.Cancelled)
         {
             // Cancelled probes are not finished samples. Do not append a partial
@@ -744,6 +826,9 @@ public sealed class ProbeScheduler : IDisposable
             _logRevision++;
             _logWriteStatus = saved;
             Remember(row);
+            // League's ping belongs to this saved test only; a test without one clears it.
+            _testGamePing = paired;
+            _tipLastHopIp = row.LastHopIP;
         }
 
         SaveSettings(row);
@@ -1161,6 +1246,9 @@ public sealed class ProbeScheduler : IDisposable
             LeagueRunning = _league,
             MatchServer = _match?.Text ?? "",
             MatchSameAsTarget = _match != null && string.Equals(_match.Ip, region.Region.TargetIp, StringComparison.Ordinal),
+            GamePing = _league ? _gamePing : null,
+            TestGamePing = _league ? _testGamePing : null,
+            TestLastHopIp = _tipLastHopIp,
             TestRunning = _testRunning,
             Phase = _phase,
             NextDueLocal = devSpent ? null : _nextDueUtc?.ToLocalTime(),

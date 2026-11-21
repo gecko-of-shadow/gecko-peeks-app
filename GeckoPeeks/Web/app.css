@@ -247,6 +247,41 @@ body.nav-collapsed main { margin-left: var(--side-w-collapsed); }
 .card-head h2 { font-size: 17px; font-weight: 600; }
 .card-sub { color: var(--faint); font-size: 13px; margin-top: 3px; }
 .link-quiet { color: var(--muted); font-size: 13px; }
+
+/* "Why is this lower than my in-game ping?" */
+.kpi-note { margin: -4px 0 0; text-align: right; }
+.kpi-note .link-quiet { text-decoration: underline; text-underline-offset: 3px; }
+.kpi-note .link-quiet:hover { color: var(--text); }
+.explain-card { padding: 0; }
+.explain-card > summary {
+  list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 18px 22px; font-weight: 600; font-size: 15px;
+}
+.explain-card > summary::-webkit-details-marker { display: none; }
+.explain-card > summary:focus-visible { outline: 2px solid #f6821f; outline-offset: -2px; border-radius: 10px; }
+.explain-chev { transition: transform .2s; color: var(--muted); }
+.explain-card[open] .explain-chev { transform: rotate(180deg); }
+.explain-body { padding: 0 22px 20px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.explain-body p { margin: 0 0 10px; }
+.ping-split { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.ping-split label { display: block; color: var(--text); font-weight: 600; font-size: 13.5px; margin-bottom: 6px; }
+.ping-input-row { display: flex; align-items: center; gap: 8px; }
+.ping-input-row input {
+  width: 110px; height: 38px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border-strong);
+  background: var(--surface-2); color: var(--text); font: inherit; font-variant-numeric: tabular-nums;
+}
+.ping-input-row input:focus-visible { outline: 2px solid #f6821f; outline-offset: 1px; }
+.ping-unit { color: var(--muted); }
+.ping-split-out { margin-top: 12px; }
+.split-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--surface-2); }
+.split-bar i { display: block; height: 100%; }
+.split-mine { background: #f6821f; }
+.split-riot { background: #a78bfa; }
+.split-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; font-size: 13px; }
+.split-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.split-legend .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.split-src { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+.ping-input-row[hidden], .ping-split label[hidden], .kpi-note[hidden] { display: none; }
 .link-quiet:hover { color: var(--text); }
 
 .grid-2 { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(300px, 1fr); gap: 20px; align-items: stretch; }

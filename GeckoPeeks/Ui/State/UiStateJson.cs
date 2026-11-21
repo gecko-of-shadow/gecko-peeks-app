@@ -156,6 +156,9 @@ public static class UiStateJson
         w.WriteBoolean("leagueRunning", p.LeagueRunning);
         w.WriteString("matchServer", p.MatchServer ?? "");
         w.WriteBoolean("matchSameAsTarget", p.MatchSameAsTarget);
+        WriteGamePing(w, "gamePing", p.GamePing);
+        WriteGamePing(w, "testGamePing", p.TestGamePing);
+        w.WriteString("testLastHopIp", p.TestLastHopIp ?? "");
         w.WriteBoolean("testRunning", p.TestRunning);
         w.WriteString("phase", p.Phase ?? "");
         w.WriteString("mode", p.Mode ?? "");
@@ -251,6 +254,24 @@ public static class UiStateJson
         w.WriteString("status", log.Status ?? "");
         w.WriteString("statusTone", UiMapping.SafeTone(log.StatusTone));
         w.WriteNumber("unsavedRows", log.UnsavedRows);
+        w.WriteEndObject();
+    }
+
+    /// <summary>{ms, lossPct, jitterMs, atUtc, reconnect} or null. Only League's figures, never an address.</summary>
+    private static void WriteGamePing(Utf8JsonWriter w, string name, GeckoPeeks.App.GamePing? ping)
+    {
+        if (ping == null)
+        {
+            w.WriteNull(name);
+            return;
+        }
+
+        w.WriteStartObject(name);
+        w.WriteNumber("ms", ping.PingMs);
+        w.WriteNumber("lossPct", Math.Round(ping.LossPct, 2));
+        w.WriteNumber("jitterMs", ping.JitterMs);
+        w.WriteString("atUtc", DateTime.SpecifyKind(ping.AtUtc, DateTimeKind.Utc).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture));
+        w.WriteBoolean("reconnect", ping.Reconnect);
         w.WriteEndObject();
     }
 

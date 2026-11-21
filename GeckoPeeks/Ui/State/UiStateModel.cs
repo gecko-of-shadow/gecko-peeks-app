@@ -59,6 +59,15 @@ public sealed record ProbeView
 
     /// <summary>True when that server is the address the tests trace anyway.</summary>
     public bool MatchSameAsTarget { get; init; }
+
+    /// <summary>League's own newest in-game ping (its netlog) during a match, else null.</summary>
+    public GeckoPeeks.App.GamePing? GamePing { get; init; }
+
+    /// <summary>League's in-game ping at the time of the shown test (within 30 s), else null.</summary>
+    public GeckoPeeks.App.GamePing? TestGamePing { get; init; }
+
+    /// <summary>The last-hop address of the shown test (the router its last-hop figure belongs to).</summary>
+    public string TestLastHopIp { get; init; } = "";
     public bool TestRunning { get; init; }
     public string Phase { get; init; } = "Idle";
     public string Mode { get; init; } = "";
