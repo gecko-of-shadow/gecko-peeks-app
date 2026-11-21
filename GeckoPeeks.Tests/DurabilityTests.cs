@@ -112,7 +112,7 @@ public class CsvDurabilityTests
     }
 
     [Fact]
-    public void Append_access_denied_message_mentions_controlled_folder_access()
+    public void Append_access_denied_message_names_both_folders_and_the_safe_fix()
     {
         var folder = Path.Combine(Path.GetTempPath(), "gecko-peeks-tests", Guid.NewGuid().ToString("N"), "blocked");
         // Folder path is under a file so CreateDirectory / writes fail.
@@ -123,8 +123,9 @@ public class CsvDurabilityTests
         {
             var log = new CsvLog(folder, () => true);
             var ex = Assert.ThrowsAny<IOException>(() => log.Append(Row("Zayo", "12:00:00")));
-            Assert.Contains("Controlled folder access", ex.Message, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("GeckoPeeks.exe", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("Documents", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("folder permissions", ex.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("Ransomware protection", ex.Message, StringComparison.Ordinal);
             Assert.DoesNotContain(folder, ex.Message, StringComparison.Ordinal);
             Assert.Equal(LogHealth.Blocked, log.Health);
         }

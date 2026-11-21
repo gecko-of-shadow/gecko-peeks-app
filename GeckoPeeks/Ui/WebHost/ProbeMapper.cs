@@ -48,6 +48,8 @@ internal static class ProbeMapper
         {
             Paused = s.Paused,
             LeagueRunning = s.LeagueRunning,
+            MatchServer = s.LeagueRunning ? s.MatchServer : "",
+            MatchSameAsTarget = s.LeagueRunning && s.MatchSameAsTarget,
             TestRunning = s.TestRunning,
             Phase = s.Phase,
             Mode = s.Mode,

@@ -49,5 +49,7 @@
     <Compile Include="..\GeckoPeeks\Net\HopResolver.cs" Link="Net\HopResolver.cs" />
     <Compile Include="..\GeckoPeeks\App\RegionSettings.cs" Link="App\RegionSettings.cs" />
     <Compile Include="..\GeckoPeeks\App\CoreServices.cs" Link="App\CoreServices.cs" />
+    <!-- v2.1.3: the server of a running League match. -->
+    <Compile Include="..\GeckoPeeks\App\LeagueMatch.cs" Link="App\LeagueMatch.cs" />
   </ItemGroup>
 </Project>

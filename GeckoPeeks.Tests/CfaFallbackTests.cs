@@ -249,9 +249,12 @@ public class LogStatusTextTests
 
         Assert.Equal(StatusTone.Bad, tone);
         Assert.StartsWith("Blocked:", text, StringComparison.Ordinal);
-        Assert.Contains("Controlled folder access", text, StringComparison.Ordinal);
-        Assert.Contains("GeckoPeeks.exe", text, StringComparison.Ordinal);
-        Assert.Contains("Ransomware protection", text, StringComparison.Ordinal);
+        Assert.Contains("Documents", text, StringComparison.Ordinal);
+        Assert.Contains(@"%LOCALAPPDATA%\GeckoPeeks", text, StringComparison.Ordinal);
+        Assert.Contains("folder permissions", text, StringComparison.Ordinal);
+        // Never advice that weakens Windows Security.
+        Assert.DoesNotContain("Ransomware protection", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("allow", text, StringComparison.OrdinalIgnoreCase);
         Assert.EndsWith("2 rows are waiting to save.", text, StringComparison.Ordinal);
         Assert.DoesNotContain("\n", text, StringComparison.Ordinal);
         Assert.DoesNotContain(":\\", text, StringComparison.Ordinal);

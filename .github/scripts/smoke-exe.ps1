@@ -138,6 +138,12 @@ $denied = [System.Collections.Generic.List[string]]::new()
 $readFailures = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 $userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 
+# The page shows the chip as "Logging · on" (v2.1); older builds said "On".
+function ChipIs([string]$chip, [string]$state) {
+    $c = ($chip -replace '^\s*Logging\s*[\u00B7\-:]\s*', '').Trim()
+    return $c -ieq $state
+}
+
 function Check([string]$Name, [bool]$Ok, [string]$Detail = "") {
     $status = if ($Ok) { "pass" } else { "FAIL" }
     $results.Add([pscustomobject]@{ Check = $Name; Result = $status; Detail = $Detail })
@@ -667,7 +673,7 @@ try {
     $webViewMb = ((WebViewProcesses | Measure-Object -Property WorkingSetSize -Sum).Sum) / 1MB
     Info "Memory and CPU after 20 s" ("{0:N0} MB working set, {1:N1} s CPU; WebView2 {2} processes, {3:N0} MB working set" -f ($app.WorkingSet64 / 1MB), $app.TotalProcessorTime.TotalSeconds, (WebViewProcesses).Count, $webViewMb)
 
-    $onMs = WaitUntil { (LogView $form).Chip -eq "On" } 10000
+    $onMs = WaitUntil { ChipIs (LogView $form).Chip "On" } 10000
     $view = LogView $form
     Check "Logging chip says On" ($onMs -ge 0) $view.Chip
     $tone = ChipTone $form $view.ChipElement
@@ -797,7 +803,7 @@ try {
     Check "Status says Controlled folder access moved the log" ($statusMs -ge 0) $view.Status
     Check "Status carries no path or exception" ($view.Status -notmatch ":\\|Could not find file|Exception") $view.Status
     Check "No 'Could not find file' text in the page" (-not ($texts -match "Could not find file"))
-    Check "Logging chip stays On while AppData accepts writes" ($view.Chip -eq "On") $view.Chip
+    Check "Logging chip stays On while AppData accepts writes" (ChipIs $view.Chip "On") $view.Chip
     Notice "log moved" "Logging=$($view.Chip) | File=$($view.File) | $($view.Status)"
     RenderCheck $form "Settings render with the log moved" "smoke-cfa-render.png"
     Screenshot "smoke-cfa-moved.png"
@@ -844,7 +850,7 @@ try {
     Check "Web page renders with both folders blocked" ($page.Ms -ge 0) $(if ($page.Fallback) { "fallback panel: $($page.Fallback)" } else { "$($page.Ms) ms" })
     $settingsMs = OpenPage $form "Settings"
     Check "Settings page opens with both folders blocked" ($settingsMs -ge 0) "$settingsMs ms"
-    $chipMs = WaitUntil { (LogView $form).Chip -eq "Blocked" } 15000
+    $chipMs = WaitUntil { ChipIs (LogView $form).Chip "Blocked" } 15000
     $null = WaitUntil { (LogView $form).Status.StartsWith("Blocked:") } 5000
     $view = LogView $form
     $texts = SaveTexts "window-text-blocked.txt" $form
@@ -856,7 +862,7 @@ try {
         Info "Blocked chip colour (expected Bad)" $(if ($tone) { "$tone; not checked (On chip read as Good: $colourCalibrated)" } else { "no chip pixels captured" })
     }
     Check "Blocked status is one short line" ($view.Status.StartsWith("Blocked:") -and $view.Status.Length -le 200 -and $view.Status -notmatch "[\r\n]") "$($view.Status.Length) chars: $($view.Status)"
-    Check "Blocked status names the fix, not a path or exception" (($view.Status -match "Ransomware protection") -and ($view.Status -notmatch ":\\|Could not find file|Exception"))
+    Check "Blocked status names the fix, not a path or exception" (($view.Status -match "folder permissions") -and ($view.Status -notmatch "Ransomware protection") -and ($view.Status -notmatch ":\\|Could not find file|Exception"))
     Check "No 'Could not find file' text in the page" (-not ($texts -match "Could not find file"))
     Notice "blocked" "Logging=$($view.Chip) [$tone] | $($view.Status)"
     Start-Sleep -Seconds 10

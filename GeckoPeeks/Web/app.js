@@ -139,6 +139,7 @@
       }).filter(function (r) { return r.id; }),
       probe: {
         paused: bool(p.paused), leagueRunning: bool(p.leagueRunning), testRunning: bool(p.testRunning),
+        matchServer: str(p.matchServer), matchSameAsTarget: bool(p.matchSameAsTarget),
         phase: str(p.phase), mode: str(p.mode), nextDueUtc: p.nextDueUtc || null, lastError: str(p.lastError),
         activityLine: str(p.activityLine), hasRoute: bool(p.hasRoute), routeLine: str(p.routeLine),
         upstream: str(p.upstream), handoffNetwork: str(p.handoffNetwork), handoffCity: str(p.handoffCity),
@@ -546,8 +547,11 @@
     kpi('kpiLoss', isNum(loss) ? [String(Math.round(loss * 10) / 10), h('small', { text: '%' })] : '—',
       !isNum(loss) ? 'muted' : loss === 0 ? 'good' : loss < 10 ? 'warn' : 'bad',
       isNum(p.riot.lossPct) ? 'Last hop · Riot ' + pct(p.riot.lossPct) : 'Last hop');
-    kpi('kpiLeague', p.leagueRunning ? 'Running' : 'Not running', 'text' + (p.leagueRunning ? ' good' : ''),
-      p.mode || (p.leagueRunning ? 'Tests every 5 min' : 'Tests every 15 min'));
+    // In a match: the server the game connected to (League's own match log).
+    kpi('kpiLeague', p.leagueRunning ? (p.matchServer ? 'In a match' : 'Running') : 'Not running', 'text' + (p.leagueRunning ? ' good' : ''),
+      p.leagueRunning && p.matchServer
+        ? 'Game server ' + p.matchServer + (p.matchSameAsTarget ? ' · the test target' : ' · not the test target')
+        : p.mode || (p.leagueRunning ? 'Tests every 5 min' : 'Tests every 15 min'));
     var adapterSub = [];
     if (p.adapter || p.vpn) adapterSub.push(h('span', { class: 'badge ' + (p.vpn ? 'warn' : ''), text: p.vpn ? 'VPN ON' : 'NO VPN' }));
     if (p.wifi) adapterSub.push(h('span', { text: p.wifi }));
@@ -1454,6 +1458,16 @@
     var targetAnswered = p.hops.some(function (x) { return x.reachedTarget && isNum(x.rttMs); });
     if (p.hops.length && !targetAnswered) foot.push('Riot often does not answer ping; the last hop shows your real route latency.');
     if (p.hops.length && latencyCaveat()) foot.push(latencyCaveat());
+    // In a match: say which address the game uses, and that Riot's own network past it is not visible.
+    if (p.leagueRunning && p.matchServer) {
+      var regionIp = S.region && S.region.target ? S.region.target.ip : '';
+      // "Past it" only holds when the target is a Riot Direct entry point (anycast), not a server itself.
+      var entry = S.region && S.region.target && S.region.target.kind === 'anycast';
+      foot.push(p.matchSameAsTarget
+        ? 'In a match: League connected to ' + p.matchServer + ', the address the tests trace.'
+          + (entry ? ' Past it, Riot carries the game on its own network, so in-game ping is usually higher than these figures.' : '')
+        : 'In a match: League connected to ' + p.matchServer + '. The tests trace the region target' + (regionIp ? ' ' + regionIp : '') + ', not this server.');
+    }
     if (p.contextLine) foot.push(p.contextLine + '.');
     setText($('#hopFoot'), foot.join(' '));
   }
@@ -2066,6 +2080,11 @@
       st.probe.hops[4] = mockHop({ n: 5, ip: '203.0.113.5', host: 'telia-ic-1.ord1.us.zip.zayo.com', rttMs: 38, asn: 6461, asName: 'Zayo Bandwidth', network: 'Zayo + Telia', nameSource: 'hostname', cityName: 'Chicago' });
       st.probe.hops.length = 5; st.probe.riot = { avgMs: null, lossPct: 100, figure: 'no reply' };
       st.cloud.pulse.isp.upstreams = [{ asn: 6461, name: 'Zayo Bandwidth', rel: 'provider' }, { asn: 174, name: 'Cogent Communications', rel: 'provider' }];
+    } else if (variant === 'match' || variant === 'matchother') {
+      // A League match: the game connected to the test target (match) or to another Riot address (matchother).
+      st.probe.leagueRunning = true; st.probe.mode = 'Tests every 5 min';
+      st.probe.matchServer = variant === 'match' ? '192.207.0.5:7363' : '192.207.0.9:7363';
+      st.probe.matchSameAsTarget = variant === 'match';
     } else if (variant === 'vpn') {
       st.probe.vpn = true; st.probe.adapter = 'WireGuard Tunnel'; st.probe.leagueRunning = true; st.probe.mode = 'Tests every 5 min';
       st.probe.nextDueUtc = new Date(now + 3 * 60000).toISOString();

@@ -154,6 +154,8 @@ public static class UiStateJson
         w.WriteStartObject("probe");
         w.WriteBoolean("paused", p.Paused);
         w.WriteBoolean("leagueRunning", p.LeagueRunning);
+        w.WriteString("matchServer", p.MatchServer ?? "");
+        w.WriteBoolean("matchSameAsTarget", p.MatchSameAsTarget);
         w.WriteBoolean("testRunning", p.TestRunning);
         w.WriteString("phase", p.Phase ?? "");
         w.WriteString("mode", p.Mode ?? "");

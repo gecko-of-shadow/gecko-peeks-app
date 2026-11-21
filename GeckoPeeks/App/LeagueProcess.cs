@@ -25,4 +25,44 @@ public static class LeagueProcess
             return false;
         }
     }
+
+    /// <summary>
+    /// When the running game process started (UTC), else null. Only the start time is read; the
+    /// game process is not opened for anything else.
+    /// </summary>
+    public static DateTime? StartedUtc()
+    {
+        try
+        {
+            var found = Process.GetProcessesByName("League of Legends");
+            try
+            {
+                DateTime? newest = null;
+                foreach (var process in found)
+                {
+                    try
+                    {
+                        var start = process.StartTime.ToUniversalTime();
+                        if (newest == null || start > newest)
+                            newest = start;
+                    }
+                    catch
+                    {
+                        // Access denied or exited: no time from this one.
+                    }
+                }
+
+                return newest;
+            }
+            finally
+            {
+                foreach (var process in found)
+                    process.Dispose();
+            }
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }

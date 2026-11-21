@@ -1,0 +1,7 @@
+Gecko Peeks: third-party data
+
+The MIT license in LICENSE covers the source code in this repository only.
+
+Data that the app shows from Cloudflare Radar is licensed by Cloudflare under
+CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/). The MIT license
+does not cover that data. The app credits Cloudflare Radar where it shows it.

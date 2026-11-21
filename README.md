@@ -26,6 +26,8 @@ Riot drops ping on many paths. When no ping comes back, the app shows **no reply
 
 The 5-minute rate starts when the game process (`League of Legends.exe`) runs. The League client alone does not change the rate.
 
+During a match (v2.1.3+), the **League** card shows which server the match connected to, for example `In a match · Game server 192.207.0.5:7363 · the test target`. The app reads it from League's own match log on your PC (`Logs\GameLogs\<time>\<time>_r3dlog.txt`, the `ServerAddress(...)` line only) and reads the game's start time to skip logs from earlier matches. It never opens or changes the game, and the test target does not change. Past a Riot Direct entry address, Riot carries the game on its own network, so in-game ping is usually higher than the app's figures.
+
 ## Screenshots
 
 | Route | History | Internet |
@@ -306,6 +308,6 @@ docs/screenshots/      demo-data screenshots
 
 ## License
 
-The code is under the [MIT License](LICENSE). Cloudflare Radar data shown in the app is under CC BY-NC 4.0 and is not covered by the MIT License.
+The code is under the [MIT License](LICENSE). Cloudflare Radar data shown in the app is under CC BY-NC 4.0 and is not covered by the MIT License (see [NOTICE](NOTICE)).
 
 Gecko Peeks is not made by or connected to Riot Games or Cloudflare. League of Legends and VALORANT are trademarks of Riot Games, Inc.

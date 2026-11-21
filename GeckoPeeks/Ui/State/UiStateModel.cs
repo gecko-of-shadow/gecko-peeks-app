@@ -53,6 +53,12 @@ public sealed record ProbeView
 {
     public bool Paused { get; init; }
     public bool LeagueRunning { get; init; }
+
+    /// <summary>"ip:port" the running League match connected to (League's own match log), else empty.</summary>
+    public string MatchServer { get; init; } = "";
+
+    /// <summary>True when that server is the address the tests trace anyway.</summary>
+    public bool MatchSameAsTarget { get; init; }
     public bool TestRunning { get; init; }
     public string Phase { get; init; } = "Idle";
     public string Mode { get; init; } = "";

@@ -83,6 +83,12 @@ public sealed class ProbeSnapshot
 
     /// <summary>Why no more tests run in this process (the one Dev probe is spent), else empty.</summary>
     public string NoMoreTests { get; init; } = "";
+
+    /// <summary>"ip:port" of the running League match (from League's match log), else empty.</summary>
+    public string MatchServer { get; init; } = "";
+
+    /// <summary>True when the match server is the region target the tests trace anyway.</summary>
+    public bool MatchSameAsTarget { get; init; }
 }
 
 /// <summary>
@@ -150,6 +156,18 @@ public sealed class ProbeScheduler : IDisposable
     private string _tipHandoffHost = "";
     private long? _tipUpstreamAsn;
     private Dictionary<string, long> _hopAsns = new(StringComparer.OrdinalIgnoreCase);
+
+    // v2.1.3: the server of the running League match, from League's own match log. Under the gate.
+    private MatchServer? _match;
+    private string _matchNoted = "";
+    private string? _gameLogs;
+    private DateTime _gameLogsCheckedUtc = DateTime.MinValue;
+    private DateTime? _gameStartedUtc;
+
+    /// <summary>Test seam: where League's match logs are, and the clock. Null uses the real ones.</summary>
+    internal Func<string?>? FindGameLogs { get; set; }
+    internal Func<DateTime>? UtcNow { get; set; }
+    internal Func<DateTime?>? GameStartedUtc { get; set; }
 
     public ProbeScheduler(LogPaths paths)
         : this(paths, AppIsolation.Profile)
@@ -438,6 +456,71 @@ public sealed class ProbeScheduler : IDisposable
         }
     }
 
+    /// <summary>
+    /// The server of the running match from League's match log, else null. Finding the League
+    /// folder is retried at most every 10 minutes when it is not found.
+    /// </summary>
+    private MatchServer? CurrentMatch()
+    {
+        try
+        {
+            var now = UtcNow?.Invoke() ?? DateTime.UtcNow;
+            string? logs;
+            lock (_gate)
+            {
+                // Looked up again every 10 minutes, so a moved or reinstalled League is found.
+                if (now - _gameLogsCheckedUtc > TimeSpan.FromMinutes(10) || (_gameLogs != null && !Directory.Exists(_gameLogs)))
+                {
+                    _gameLogsCheckedUtc = now;
+                    _gameLogs = (FindGameLogs ?? LeagueMatch.FindGameLogs)();
+                }
+
+                logs = _gameLogs;
+            }
+
+            // Only this game's log counts: a log made before the game process started is from an
+            // earlier match. Without the start time, no match is claimed. The start time is read
+            // once per game (UpdateLeague forgets it when the game closes).
+            DateTime? started;
+            lock (_gate)
+                started = _gameStartedUtc;
+            if (started == null)
+            {
+                started = (GameStartedUtc ?? LeagueProcess.StartedUtc)();
+                lock (_gate)
+                    _gameStartedUtc = started;
+            }
+
+            return started is { } since ? LeagueMatch.Current(logs, now, since) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Keeps the match for the window, and writes one activity line per new match server.</summary>
+    private void NoteMatch(MatchServer? match)
+    {
+        string note = "";
+        lock (_gate)
+        {
+            _match = match;
+            if (match == null)
+                return;
+            var key = match.Text;
+            if (key == _matchNoted)
+                return;
+            _matchNoted = key;
+            var regionTarget = CurrentRegion().Region.TargetIp;
+            note = string.Equals(match.Ip, regionTarget, StringComparison.Ordinal)
+                ? $"League match: the game connected to {match.Text}, the address the tests trace."
+                : $"League match: the game connected to {match.Text}. The tests keep tracing the region target {regionTarget}.";
+        }
+
+        Note(note);
+    }
+
     private void UpdateLeague(bool logChange)
     {
         var running = LeagueProcess.IsRunning();
@@ -449,6 +532,13 @@ public sealed class ProbeScheduler : IDisposable
                 _league = running;
                 changed = true;
                 RecomputeDue();
+            }
+
+            if (!running)
+            {
+                _match = null;
+                _matchNoted = "";
+                _gameStartedUtc = null;
             }
         }
 
@@ -572,6 +662,11 @@ public sealed class ProbeScheduler : IDisposable
 
             Publish();
         });
+
+        // During a League match, note which server the match connected to. The test target never
+        // changes: the window says whether the tests already trace that address.
+        var match = league && _core != null ? CurrentMatch() : null;
+        NoteMatch(match);
 
         // Each run reads the region at its start.
         var row = _core == null
@@ -1064,6 +1159,8 @@ public sealed class ProbeScheduler : IDisposable
             Mode = _league ? "Every 5 min" : "Every 15 min",
             Paused = _paused,
             LeagueRunning = _league,
+            MatchServer = _match?.Text ?? "",
+            MatchSameAsTarget = _match != null && string.Equals(_match.Ip, region.Region.TargetIp, StringComparison.Ordinal),
             TestRunning = _testRunning,
             Phase = _phase,
             NextDueLocal = devSpent ? null : _nextDueUtc?.ToLocalTime(),

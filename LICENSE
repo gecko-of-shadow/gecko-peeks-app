@@ -19,11 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This license covers the source code in this repository only.
-
-Data that the app shows from Cloudflare Radar is licensed by Cloudflare under
-CC BY-NC 4.0 (https://creativecommons.org/licenses/by-nc/4.0/). The MIT license
-does not cover that data. The app credits Cloudflare Radar where it shows it.

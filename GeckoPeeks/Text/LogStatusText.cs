@@ -18,9 +18,13 @@ public enum StatusTone
 /// </summary>
 public static class LogStatusText
 {
+    /// <summary>
+    /// Both folders refused the write. The log already moves out of Documents by itself when
+    /// Controlled folder access protects it, so the advice never asks to weaken that protection.
+    /// </summary>
     public const string BlockedReason =
-        "Blocked: Windows refused to save the log. If Controlled folder access is on, "
-        + "allow GeckoPeeks.exe under Ransomware protection.";
+        @"Blocked: Windows refused to save the log in Documents and in %LOCALAPPDATA%\GeckoPeeks. "
+        + "Check disk space and folder permissions.";
 
     public const string NotSavedNote = "Row not saved: the log folder is blocked. See LOCAL LOG.";
 
