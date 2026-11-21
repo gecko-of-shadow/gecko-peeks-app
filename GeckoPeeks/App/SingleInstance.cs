@@ -1,0 +1,129 @@
+using System.Runtime.InteropServices;
+
+namespace GeckoPeeks.App;
+
+/// <summary>
+/// Named mutex plus an auto-reset event. A second launch signals the first
+/// and returns without starting another scheduler.
+/// </summary>
+public sealed class SingleInstance : IDisposable
+{
+    public const string MutexName = AppIsolation.ProductionMutexName;
+    public const string ShowEventName = AppIsolation.ProductionShowEventName;
+
+    private readonly Mutex? _mutex;
+    private readonly EventWaitHandle? _show;
+    private int _stop;
+
+    private SingleInstance(Mutex? mutex, EventWaitHandle? show, bool isFirst)
+    {
+        _mutex = mutex;
+        _show = show;
+        IsFirst = isFirst;
+    }
+
+    public bool IsFirst { get; }
+
+    public static SingleInstance Acquire() => Acquire(AppIsolation.Profile);
+
+    public static SingleInstance Acquire(RunProfile profile)
+    {
+        var mutexName = AppIsolation.MutexName(profile);
+        var showEventName = AppIsolation.ShowEventName(profile);
+        try
+        {
+            var mutex = new Mutex(initiallyOwned: true, mutexName, out var created);
+            if (!created)
+            {
+                try
+                {
+                    // This launch holds the user's foreground right (Explorer, a taskbar pin).
+                    // Hand it on so the first instance can raise its window instead of flashing.
+                    AllowSetForegroundWindow(AsfwAny);
+                }
+                catch
+                {
+                    // The window still opens, possibly behind the active app.
+                }
+
+                try
+                {
+                    using var existing = EventWaitHandle.OpenExisting(showEventName);
+                    existing.Set();
+                }
+                catch
+                {
+                    // The first instance is not listening yet. Exiting still avoids a second scheduler.
+                }
+
+                mutex.Dispose();
+                return new SingleInstance(null, null, false);
+            }
+
+            var show = new EventWaitHandle(false, EventResetMode.AutoReset, showEventName);
+            return new SingleInstance(mutex, show, true);
+        }
+        catch
+        {
+            // If the mutex cannot be created, keep the monitor running rather than quit silently.
+            return new SingleInstance(null, null, true);
+        }
+    }
+
+    public void Listen(Action showWindow)
+    {
+        if (_show == null)
+            return;
+
+        var handle = _show;
+        Task.Run(() =>
+        {
+            while (Volatile.Read(ref _stop) == 0)
+            {
+                try
+                {
+                    if (!handle.WaitOne())
+                        continue;
+                }
+                catch
+                {
+                    break;
+                }
+
+                if (Volatile.Read(ref _stop) != 0)
+                    break;
+
+                try
+                {
+                    showWindow();
+                }
+                catch
+                {
+                    // Showing the window must not tear down the monitor.
+                }
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        Interlocked.Exchange(ref _stop, 1);
+        try
+        {
+            _show?.Set();
+        }
+        catch
+        {
+            // The listener exits on the next wait failure.
+        }
+
+        _show?.Dispose();
+        _mutex?.Dispose();
+    }
+
+    private const int AsfwAny = -1;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AllowSetForegroundWindow(int processId);
+}

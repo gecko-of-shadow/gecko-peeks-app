@@ -1,0 +1,9 @@
+{
+  "name": "gecko-peeks-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/index.test.mjs test/update.test.mjs test/v21.test.mjs",
+    "deploy": "wrangler deploy"
+  }
+}

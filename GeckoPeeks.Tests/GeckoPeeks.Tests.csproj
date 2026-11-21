@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>GeckoPeeks.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\GeckoPeeks\Routing\*.cs" Link="Routing\%(Filename)%(Extension)" />
+    <Compile Include="..\GeckoPeeks\Logging\RouteRow.cs" Link="Logging\RouteRow.cs" />
+    <Compile Include="..\GeckoPeeks\Logging\CsvFormat.cs" Link="Logging\CsvFormat.cs" />
+    <Compile Include="..\GeckoPeeks\Logging\CsvLog.cs" Link="Logging\CsvLog.cs" />
+    <Compile Include="..\GeckoPeeks\Logging\SettingsStore.cs" Link="Logging\SettingsStore.cs" />
+    <Compile Include="..\GeckoPeeks\Logging\UpstreamSummary.cs" Link="Logging\UpstreamSummary.cs" />
+    <Compile Include="..\GeckoPeeks\Logging\LatencyLabels.cs" Link="Logging\LatencyLabels.cs" />
+    <Compile Include="..\GeckoPeeks\Net\IcmpTiming.cs" Link="Net\IcmpTiming.cs" />
+    <Compile Include="..\GeckoPeeks\Net\TestRunner.cs" Link="Net\TestRunner.cs" />
+    <Compile Include="..\GeckoPeeks\Text\CityNames.cs" Link="Text\CityNames.cs" />
+    <Compile Include="..\GeckoPeeks\Text\RouteChange.cs" Link="Text\RouteChange.cs" />
+    <Compile Include="..\GeckoPeeks\Text\TooltipText.cs" Link="Text\TooltipText.cs" />
+    <Compile Include="..\GeckoPeeks\Text\TrayMenu.cs" Link="Text\TrayMenu.cs" />
+    <Compile Include="..\GeckoPeeks\App\AppIsolation.cs" Link="App\AppIsolation.cs" />
+    <Compile Include="..\GeckoPeeks\App\UpdateSkip.cs" Link="App\UpdateSkip.cs" />
+    <Compile Include="..\GeckoPeeks\App\StartupRegistration.cs" Link="App\StartupRegistration.cs" />
+    <Compile Include="..\GeckoPeeks\App\AppUpdate.cs" Link="App\AppUpdate.cs" />
+    <Compile Include="..\GeckoPeeks\App\UpdateClient.cs" Link="App\UpdateClient.cs" />
+    <Compile Include="..\GeckoPeeks\App\UpdateInstaller.cs" Link="App\UpdateInstaller.cs" />
+    <Compile Include="..\GeckoPeeks\Text\LogStatusText.cs" Link="Text\LogStatusText.cs" />
+    <Compile Include="..\GeckoPeeks\Text\HopDiff.cs" Link="Text\HopDiff.cs" />
+    <Compile Include="..\GeckoPeeks\Text\RouteBaseline.cs" Link="Text\RouteBaseline.cs" />
+    <Compile Include="..\GeckoPeeks\Text\RouteCardText.cs" Link="Text\RouteCardText.cs" />
+    <Compile Include="..\GeckoPeeks\Text\DiagnosisText.cs" Link="Text\DiagnosisText.cs" />
+    <Compile Include="..\GeckoPeeks\Net\NetworkContext.cs" Link="Net\NetworkContext.cs" />
+    <Compile Include="..\GeckoPeeks\App\LogPaths.cs" Link="App\LogPaths.cs" />
+    <Compile Include="..\GeckoPeeks\Logging\ActivityLog.cs" Link="Logging\ActivityLog.cs" />
+    <!-- v2: updater service, Cloudflare client, and the WinForms-free UI state builder. -->
+    <Compile Include="..\GeckoPeeks\App\UpdateService*.cs" Link="App\%(Filename)%(Extension)" />
+    <Compile Include="..\GeckoPeeks\Cloud\*.cs" Link="Cloud\%(Filename)%(Extension)" />
+    <Compile Include="..\GeckoPeeks\Ui\State\*.cs" Link="Ui\State\%(Filename)%(Extension)" />
+    <!-- v2.1: reference data, DoH names, region choice and the app core. -->
+    <EmbeddedResource Include="..\cloud\worker\data\refdata.json" LogicalName="GeckoPeeks.RefData/refdata.json" Link="RefData\refdata.json" />
+    <Compile Include="..\GeckoPeeks\Net\DohClient.cs" Link="Net\DohClient.cs" />
+    <Compile Include="..\GeckoPeeks\Net\HopResolver.cs" Link="Net\HopResolver.cs" />
+    <Compile Include="..\GeckoPeeks\App\RegionSettings.cs" Link="App\RegionSettings.cs" />
+    <Compile Include="..\GeckoPeeks\App\CoreServices.cs" Link="App\CoreServices.cs" />
+  </ItemGroup>
+</Project>

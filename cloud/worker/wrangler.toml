@@ -1,0 +1,40 @@
+name = "gecko-peeks-api"
+main = "src/entry.js"
+compatibility_date = "2025-09-01"
+# No account_id here. Wrangler reads it from the CLOUDFLARE_ACCOUNT_ID environment variable,
+# or asks you to pick an account after `npx wrangler login`.
+workers_dev = true
+
+# The Radar API token is a secret. It is never stored in this repo.
+# Set it with: npx wrangler secret put RADAR_TOKEN
+
+# Limits each caller IP on /v1/pulse, /v1/asn and /v1/riot-status, so one caller cannot spend the
+# shared Radar token quota. The code allows every call when this binding is missing.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 30, period = 60 }
+
+# Limits each caller IP on /v1/update/download only. It is its own bucket, so a pulse or
+# asn poll (or several installs behind one NAT) never blocks an update download.
+[[ratelimits]]
+name = "DOWNLOAD_LIMITER"
+namespace_id = "1002"
+simple = { limit = 20, period = 60 }
+
+# Update channel. Workers KV (Free plan). One KV value holds at most 25 MiB, so the exe is
+# stored in parts: <channel>/<version>/<file>/part/<n> (each at most 24 MiB) and
+# <channel>/<version>/<file>/meta. <channel>/latest.json is the promoted release.
+# The app reads it through /v1/update/*. Only /v1/admin/* writes, with PUBLISH_KEY.
+# Set the key with: npx wrangler secret put PUBLISH_KEY (pipe it in; never paste it in a file here).
+[[kv_namespaces]]
+binding = "RELEASES_KV"
+# The KV namespace id is not a secret: only a token for the owning account can use it.
+# For your own deploy, run `npx wrangler kv namespace create gecko-peeks-releases` and put your id here.
+id = "8a71a3d49c9443d9bce97a55ac268767"
+
+[observability]
+enabled = true
+
+[observability.traces]
+enabled = true

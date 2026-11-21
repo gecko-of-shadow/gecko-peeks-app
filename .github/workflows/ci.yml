@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  pull_request:
+  # Run from the Actions tab on any branch. A dispatch runs the test job and the production
+  # smoke (it is not a pull request), never the dev smoke.
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - ".github/workflows/ship-v*.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Materialize application icon
+        shell: pwsh
+        run: |
+          $b64 = "GeckoPeeks/Assets/gecko-peeks.ico.b64"
+          $ico = "GeckoPeeks/Assets/gecko-peeks.ico"
+          if (-not (Test-Path -LiteralPath $ico)) { certutil -decode $b64 $ico }
+      - name: Test
+        run: dotnet test -c Release
+
+  # The same exe smoke the release runs, so a window, page or tray regression shows up on the
+  # push that caused it instead of at release time. Pull requests skip this job: it
+  # rewrites the HKCU Run value, changes log ACLs, and stops every production process.
+  smoke:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Materialize application icon
+        shell: pwsh
+        run: |
+          $b64 = "GeckoPeeks/Assets/gecko-peeks.ico.b64"
+          $ico = "GeckoPeeks/Assets/gecko-peeks.ico"
+          if (-not (Test-Path -LiteralPath $ico)) { certutil -decode $b64 $ico }
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (Select-Xml -Path GeckoPeeks/GeckoPeeks.csproj -XPath "/Project/PropertyGroup/Version").Node.InnerText.Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Unexpected <Version> '$version' in GeckoPeeks.csproj" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Publish
+        working-directory: GeckoPeeks
+        run: dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+      - name: Smoke-run GeckoPeeks.exe
+        shell: pwsh
+        run: ./.github/scripts/smoke-exe.ps1 -Exe "GeckoPeeks\bin\Release\net8.0-windows\win-x64\publish\GeckoPeeks.exe" -ExpectVersion "${{ steps.version.outputs.version }}" -OutDir smoke
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-ci-${{ github.sha }}
+          path: smoke
+          if-no-files-found: warn
+
+  # Pull requests publish and launch the dev assembly only. The dev build does
+  # not probe, update, or write the production Run value or log folders.
+  smoke-dev:
+    needs: test
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Materialize application icon
+        shell: pwsh
+        run: |
+          $b64 = "GeckoPeeks/Assets/gecko-peeks.ico.b64"
+          $ico = "GeckoPeeks/Assets/gecko-peeks.ico"
+          if (-not (Test-Path -LiteralPath $ico)) { certutil -decode $b64 $ico }
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (Select-Xml -Path GeckoPeeks/GeckoPeeks.csproj -XPath "/Project/PropertyGroup/Version").Node.InnerText.Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Unexpected <Version> '$version' in GeckoPeeks.csproj" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - name: Publish dev build
+        working-directory: GeckoPeeks
+        run: dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:GeckoPeeksDev=true
+      - name: Smoke-run GeckoPeeksDev.exe
+        shell: pwsh
+        run: ./.github/scripts/smoke-dev.ps1 -Exe "GeckoPeeks\bin\Release\net8.0-windows\win-x64\publish\GeckoPeeksDev.exe" -ExpectVersion "${{ steps.version.outputs.version }}" -OutDir smoke-dev
+      - name: Upload dev smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-dev-pr-${{ github.sha }}
+          path: smoke-dev
+          if-no-files-found: warn

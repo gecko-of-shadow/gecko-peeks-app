@@ -1,0 +1,20 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+TestResults/
+.dotnet/
+*.tmp
+# Worker local files. .dev.vars holds the local RADAR_TOKEN and must never be committed.
+cloud/worker/.dev.vars
+cloud/worker/.wrangler/
+cloud/worker/node_modules/
+# Local tool output.
+.playwright-mcp/
+.cursor/
+# Session and agent folders.
+.claude/
+.remember/
+# Decoded at build time from gecko-peeks.ico.b64.
+GeckoPeeks/Assets/gecko-peeks.ico

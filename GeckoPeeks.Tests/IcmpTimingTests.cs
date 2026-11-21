@@ -1,0 +1,261 @@
+using GeckoPeeks.Logging;
+using GeckoPeeks.Net;
+using Xunit;
+
+namespace GeckoPeeks.Tests;
+
+public class IcmpTimingTests
+{
+    [Theory]
+    [InlineData(18, 25, 18)]   // Prefer API RoundtripTime when positive
+    [InlineData(0, 25, 25)]    // Windows TtlExpired often reports 0 — use Stopwatch
+    [InlineData(0, 0, 0)]
+    [InlineData(12, 0, 12)]
+    public void ResolveRttMs_prefers_api_then_elapsed(long api, long elapsed, long expected) =>
+        Assert.Equal(expected, IcmpTiming.ResolveRttMs(api, elapsed));
+
+    [Theory]
+    [InlineData(0, 0.4, 0)]     // <0.5 ms rounds to 0; FormatHopRtt shows "<1 ms"
+    [InlineData(0, 0.5, 1)]
+    [InlineData(0, 19.4, 19)]
+    [InlineData(0, 19.6, 20)]
+    [InlineData(22, 40.2, 22)]  // positive API still wins
+    public void ResolveRttMs_uses_fractional_elapsed(long api, double elapsed, long expected) =>
+        Assert.Equal(expected, IcmpTiming.ResolveRttMs(api, elapsed));
+
+    [Fact]
+    public void ResolveRespondedRttMs_is_null_when_silent() =>
+        Assert.Null(IcmpTiming.ResolveRespondedRttMs(false, 0, 40));
+
+    [Fact]
+    public void ResolveRespondedRttMs_uses_elapsed_when_api_is_zero() =>
+        Assert.Equal(40, IcmpTiming.ResolveRespondedRttMs(true, 0, 40.0));
+
+    [Theory]
+    [InlineData(true, 0L, "<1 ms")]
+    [InlineData(true, 1L, "1 ms")]
+    [InlineData(true, 19L, "19 ms")]
+    [InlineData(false, 19L, "")]
+    [InlineData(true, null, "")]
+    public void FormatHopRtt_never_shows_zero_ms_for_reply(bool responded, long? rtt, string expected) =>
+        Assert.Equal(expected, IcmpTiming.FormatHopRtt(responded, rtt));
+}
+
+public class UpstreamSummaryTests
+{
+    [Fact]
+    public void Last_hop_and_riot_are_separate_columns()
+    {
+        var rows = new[]
+        {
+            Sample("Zayo", riot: "61", last: "40"),
+            Sample("Zayo", riot: "59", last: "38"),
+        };
+
+        var summary = Assert.Single(UpstreamSummary.Build(rows));
+        Assert.Equal("Zayo", summary.Upstream);
+        Assert.Equal(2, summary.Count);
+        Assert.Equal("39", summary.LastHopMs);
+        Assert.Equal("60", summary.RiotMs);
+    }
+
+    [Fact]
+    public void Blank_riot_is_never_filled_from_last_hop()
+    {
+        var summary = Assert.Single(UpstreamSummary.Build(new[] { Sample("Zayo", riot: "", last: "44") }));
+        Assert.Equal("44", summary.LastHopMs);
+        Assert.Equal("\u2014", summary.RiotMs);
+    }
+
+    [Fact]
+    public void Handoff_rtt_is_not_reported_as_last_hop()
+    {
+        var row = Sample("Zayo", riot: "", last: "");
+        row.HandoffRttMs = "37";
+        var summary = Assert.Single(UpstreamSummary.Build(new[] { row }));
+        Assert.Equal("\u2014", summary.LastHopMs);
+        Assert.Equal("\u2014", summary.RiotMs);
+    }
+
+    [Fact]
+    public void Riot_full_loss_reads_no_reply_and_last_hop_keeps_its_average()
+    {
+        // gecko's v1.0.7 screenshot: RiotHopLossPct 100 on every row, LastHopAvg ~19–23.
+        var rows = new[]
+        {
+            Sample("Zayo", riot: "", last: "19", riotLoss: "100"),
+            Sample("Zayo", riot: "", last: "22", riotLoss: "100"),
+            Sample("Zayo", riot: "", last: "23", riotLoss: "100"),
+        };
+
+        var summary = Assert.Single(UpstreamSummary.Build(rows));
+        Assert.Equal("21", summary.LastHopMs);
+        Assert.Equal(LatencyLabels.NoReply, summary.RiotMs);
+    }
+
+    [Fact]
+    public void Riot_average_uses_only_rows_where_riot_answered()
+    {
+        var rows = new[]
+        {
+            Sample("Zayo", riot: "", last: "20", riotLoss: "100"),
+            Sample("Zayo", riot: "58", last: "22", riotLoss: "0"),
+        };
+
+        var summary = Assert.Single(UpstreamSummary.Build(rows));
+        Assert.Equal("58", summary.RiotMs);
+        Assert.Equal("21", summary.LastHopMs);
+    }
+
+    [Fact]
+    public void Em_dash_placeholder_is_not_a_number()
+    {
+        var row = Sample("Zayo", riot: "\u2014", last: "20");
+        var summary = Assert.Single(UpstreamSummary.Build(new[] { row }));
+        Assert.Equal("20", summary.LastHopMs);
+        Assert.Equal("\u2014", summary.RiotMs);
+    }
+
+    private static RouteRow Sample(string upstream, string riot, string last, string riotLoss = "") => new()
+    {
+        Timestamp = "2026-10-11 12:00:00",
+        LeagueRunning = "N",
+        Upstream = upstream,
+        RiotHopAvg = riot,
+        RiotHopLossPct = riotLoss,
+        LastHopAvg = last,
+        FullPath = "1.1.1.1 > 192.207.0.5",
+    };
+}
+
+public class PendingLogTests
+{
+    [Fact]
+    public void Pending_write_creates_missing_file_and_folder()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "gecko-peeks-tests", Guid.NewGuid().ToString("N"), "nested");
+        try
+        {
+            Assert.False(Directory.Exists(folder));
+            var log = new CsvLog(folder, () => true);
+            var row = new RouteRow
+            {
+                Timestamp = "2026-10-11 12:00:00",
+                LeagueRunning = "N",
+                Upstream = "Zayo",
+                RiotHopAvg = "61",
+                FullPath = "1.1.1.1 > 192.207.0.5",
+            };
+
+            Assert.Equal(AppendResult.Pending, log.Append(row));
+            Assert.True(File.Exists(log.PendingPath));
+            Assert.Contains("Zayo", File.ReadAllText(log.PendingPath), StringComparison.Ordinal);
+            Assert.Contains("61", File.ReadAllText(log.PendingPath), StringComparison.Ordinal);
+            Assert.Equal(AppendResult.Pending, log.LastAppendResult);
+            Assert.NotNull(log.LastSuccessfulWriteLocal);
+            Assert.Equal(log.PendingPath, log.LastSuccessfulWritePath);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(Path.GetDirectoryName(folder)!, recursive: true);
+            }
+            catch
+            {
+                // Temp only.
+            }
+        }
+    }
+
+    [Fact]
+    public void Pending_write_succeeds_when_pending_file_was_absent()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "gecko-peeks-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var log = new CsvLog(folder, () => true);
+            Assert.False(File.Exists(log.PendingPath));
+            Assert.Equal(AppendResult.Pending, log.Append(new RouteRow
+            {
+                Timestamp = "2026-10-11 12:01:00",
+                Upstream = "Cogent",
+                RiotHopAvg = "55",
+            }));
+            Assert.True(File.Exists(log.PendingPath));
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+            catch
+            {
+                // Temp only.
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ReadAll_does_not_throw_while_append_holds_the_writer()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "gecko-peeks-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var log = new CsvLog(folder);
+            Assert.Equal(AppendResult.Main, log.Append(new RouteRow
+            {
+                Timestamp = "2026-10-11 12:00:00",
+                Upstream = "Zayo",
+                RiotHopAvg = "61",
+                FullPath = "1.1.1.1 > 192.207.0.5",
+            }));
+
+            Exception? readError = null;
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var reader = Task.Run(() =>
+            {
+                started.TrySetResult();
+                try
+                {
+                    for (var i = 0; i < 40; i++)
+                        _ = log.ReadAll();
+                }
+                catch (Exception ex)
+                {
+                    readError = ex;
+                }
+            });
+
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            for (var i = 0; i < 20; i++)
+            {
+                log.Append(new RouteRow
+                {
+                    Timestamp = $"2026-10-11 12:00:{i:00}",
+                    Upstream = "Zayo",
+                    RiotHopAvg = "60",
+                    FullPath = "1.1.1.1 > 192.207.0.5",
+                });
+            }
+
+            await reader.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Null(readError);
+            Assert.True(log.ReadAll().Count >= 1);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(folder, recursive: true);
+            }
+            catch
+            {
+                // Temp only.
+            }
+        }
+    }
+}

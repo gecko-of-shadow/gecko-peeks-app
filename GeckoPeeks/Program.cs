@@ -1,0 +1,86 @@
+using System.Diagnostics;
+using GeckoPeeks.App;
+using GeckoPeeks.Ui;
+
+namespace GeckoPeeks;
+
+internal static class Program
+{
+    [STAThread]
+    private static void Main(string[] args)
+    {
+        var instance = SingleInstance.Acquire();
+        if (!instance.IsFirst)
+        {
+            instance.Dispose();
+            return;
+        }
+
+        try
+        {
+            // Stay out of the way of a game. Best-effort: some hosts refuse the change.
+            Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.BelowNormal;
+        }
+        catch
+        {
+            // Keep running at the default priority.
+        }
+
+        ApplicationConfiguration.Initialize();
+        Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        Application.ThreadException += (_, args) => CrashLog.Write(args.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, args) => CrashLog.Write(args.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            CrashLog.Write(args.Exception);
+            args.SetObserved();
+        };
+
+        var startHidden = args.Any(arg =>
+            string.Equals(arg, StartupRegistration.TrayArgument, StringComparison.OrdinalIgnoreCase));
+        Application.Run(new TrayApplicationContext(instance, showWindow: !startHidden));
+        instance.Dispose();
+    }
+}
+
+internal static class CrashLog
+{
+    /// <summary>The route log's folder, so crash.log follows the log out of Documents.</summary>
+    public static string? Folder { get; set; }
+
+    public static void Write(Exception? exception)
+    {
+        if (exception == null)
+            return;
+
+        try
+        {
+            var folder = AppIsolation.CrashFolderOrNull(Folder, () => LogPaths.Resolve().Folder, AppIsolation.Profile);
+            if (string.IsNullOrWhiteSpace(folder))
+                return;
+            Directory.CreateDirectory(folder);
+            var path = Path.Combine(folder, "crash.log");
+            File.AppendAllText(path, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {exception}{Environment.NewLine}");
+            TrimCrashLog(path);
+        }
+        catch
+        {
+            // A failed crash log must not throw again.
+        }
+    }
+
+    private static void TrimCrashLog(string path)
+    {
+        const int maxBytes = 256 * 1024;
+        const int keepLines = 200;
+        var info = new FileInfo(path);
+        if (!info.Exists || info.Length < maxBytes)
+            return;
+
+        var lines = File.ReadAllLines(path);
+        if (lines.Length <= keepLines)
+            return;
+
+        File.WriteAllLines(path, lines[^keepLines..]);
+    }
+}

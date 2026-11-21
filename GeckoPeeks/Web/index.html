@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'; font-src 'self'">
+<title>Gecko Peeks</title>
+<link rel="icon" href="gecko.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+</head>
+<body data-nav="auto">
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="brand">
+    <img src="gecko.svg" alt="" width="30" height="30" class="brand-mark">
+    <span class="wordmark">GECKO PEEKS</span>
+    <span class="brand-pill">PEEKS</span>
+    <span class="demo-badge" id="demoBadge" hidden title="This window shows made-up demo data">Demo data</span>
+  </div>
+  <div class="topbar-status" aria-live="polite">
+    <span class="chip" id="chipLog" title="Log status"><span class="dot"></span><span class="chip-text">Logging</span></span>
+    <span class="chip" id="chipPhase" hidden><span class="spinner" aria-hidden="true"></span><span class="chip-text">Testing</span></span>
+    <span class="chip chip-quiet" id="chipNext"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="chip-text">Next test —</span></span>
+  </div>
+  <div class="topbar-actions">
+    <div id="updateCtl" class="update-ctl"></div>
+    <button class="btn btn-primary" id="btnRunTop" type="button" aria-label="Run test now">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg><span>Run test now</span>
+    </button>
+  </div>
+</header>
+
+<aside class="sidebar" aria-label="Main navigation">
+  <nav>
+    <ul class="nav">
+      <li><a href="#/overview" data-page="overview" aria-label="Overview"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 16 0"/><path d="M12 12l4-4"/><circle cx="12" cy="12" r="1.6"/><path d="M4 16h16"/><path d="M7 20h10"/></svg><span class="nav-label">Overview</span></a></li>
+      <li><a href="#/route" data-page="route" aria-label="Route"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="18" r="2"/><circle cx="19" cy="6" r="2"/><path d="M7 18h6a3 3 0 0 0 0-6h-2a3 3 0 0 1 0-6h6"/></svg><span class="nav-label">Route</span></a></li>
+      <li><a href="#/history" data-page="history" aria-label="History"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h16"/><path d="M4 15l4-5 4 3 5-7 3 4"/></svg><span class="nav-label">History</span></a></li>
+      <li><a href="#/internet" data-page="internet" aria-label="Internet"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18"/><path d="M12 3a14 14 0 0 0 0 18"/></svg><span class="nav-label">Internet</span></a></li>
+      <li><a href="#/settings" data-page="settings" aria-label="Settings"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg><span class="nav-label">Settings</span></a></li>
+    </ul>
+  </nav>
+  <div class="sidebar-foot">
+    <span class="sidebar-ver" id="sideVersion"></span>
+    <button class="icon-btn" id="btnNav" type="button" aria-label="Collapse sidebar" title="Collapse sidebar">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9 4.5v15"/></svg>
+    </button>
+  </div>
+</aside>
+
+<main id="main" tabindex="-1">
+
+  <!-- Overview -->
+  <section class="page" id="page-overview" data-page="overview" aria-labelledby="h-overview">
+    <div class="page-head">
+      <div class="page-title">
+        <h1 id="h-overview">Route to Riot</h1>
+        <p class="subtitle" id="ovSubtitle">Waiting for the first test</p>
+      </div>
+      <div class="page-tools">
+        <div class="select" id="rangeSelect">
+          <button type="button" class="select-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="Chart range">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>
+            <span class="select-value">Last 7 days</span>
+            <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 10l4-4 4 4M8 14l4 4 4-4"/></svg>
+          </button>
+          <ul class="select-menu" role="listbox" hidden>
+            <li role="option" data-value="1" tabindex="-1">Last 24 hours</li>
+            <li role="option" data-value="7" tabindex="-1">Last 7 days</li>
+            <li role="option" data-value="30" tabindex="-1">Last 30 days</li>
+            <li role="option" data-value="90" tabindex="-1">Last 90 days</li>
+            <li role="option" data-value="0" tabindex="-1">All tests</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="kpis" id="kpis">
+      <div class="kpi" id="kpiLast"><div class="kpi-label">Last hop</div><div class="kpi-value">—</div><div class="kpi-sub"></div></div>
+      <div class="kpi" id="kpiRiot"><div class="kpi-label">Riot ICMP</div><div class="kpi-value">—</div><div class="kpi-sub"></div></div>
+      <div class="kpi" id="kpiLoss"><div class="kpi-label">Loss</div><div class="kpi-value">—</div><div class="kpi-sub"></div></div>
+      <div class="kpi" id="kpiLeague"><div class="kpi-label">League</div><div class="kpi-value">—</div><div class="kpi-sub"></div></div>
+      <div class="kpi" id="kpiAdapter"><div class="kpi-label">Adapter</div><div class="kpi-value">—</div><div class="kpi-sub"></div></div>
+      <div class="kpi" id="kpiNext"><div class="kpi-label">Next test</div><div class="kpi-value">—</div><div class="kpi-sub"></div></div>
+    </div>
+
+    <div class="card map-card">
+      <div class="map" id="map" aria-label="Route map" role="img"></div>
+      <div class="map-info" id="mapInfo">
+        <div class="map-info-head">
+          <div class="map-info-title"></div>
+          <button type="button" class="map-info-toggle" id="mapInfoToggle" aria-expanded="true" aria-controls="mapInfoText" aria-label="Hide details" title="Hide details"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>
+        </div>
+        <div class="map-info-text" id="mapInfoText"></div>
+      </div>
+      <div class="map-zoom" role="group" aria-label="Map zoom">
+        <button type="button" class="zoom-btn" id="zoomIn" aria-label="Zoom in" title="Zoom in"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button type="button" class="zoom-btn" id="zoomOut" aria-label="Zoom out" title="Zoom out"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+        <button type="button" class="zoom-btn" id="zoomReset" aria-label="Reset map view" title="Reset view"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+      </div>
+      <div class="map-legend" id="mapLegend">
+        <span id="lgYou"><i class="lg lg-you"></i>You</span>
+        <span id="lgEdge"><i class="lg lg-edge"></i>Cloudflare edge</span>
+        <span><i class="lg lg-hand"></i>Handoff</span>
+        <span id="lgRiot"><i class="lg lg-riot"></i><span class="lg-text">Riot servers</span></span>
+      </div>
+      <div class="map-hint" id="mapHint">Use Ctrl + scroll to zoom</div>
+      <div class="map-tip" id="mapTip" hidden></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card chart-card">
+        <div class="card-head">
+          <div>
+            <h2>Latency history</h2>
+            <p class="card-sub" id="chartSub">Average round trip per test</p>
+          </div>
+          <div class="legend">
+            <span><i class="sw sw-last"></i>Last hop</span>
+            <span><i class="sw sw-riot"></i>Riot ICMP</span>
+          </div>
+        </div>
+        <div class="chart" id="latChart"></div>
+      </div>
+      <div class="card pulse-card">
+        <div class="card-head">
+          <div>
+            <h2>Internet pulse</h2>
+            <p class="card-sub" id="pulseAge">Cloudflare Radar</p>
+          </div>
+          <a href="#/internet" class="link-quiet">Details</a>
+        </div>
+        <div id="pulseBody" class="pulse-body"></div>
+      </div>
+    </div>
+
+    <div class="card rs-card" id="rsOverview"></div>
+  </section>
+
+  <!-- Route -->
+  <section class="page" id="page-route" data-page="route" aria-labelledby="h-route" hidden>
+    <div class="page-head">
+      <div class="page-title">
+        <h1 id="h-route">Route</h1>
+        <p class="subtitle" id="rtSubtitle">Every hop from this PC to Riot</p>
+      </div>
+      <div class="page-tools">
+        <button class="btn" type="button" id="btnCopyDiag" aria-label="Copy diagnosis"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><span>Copy diagnosis</span></button>
+        <button class="btn btn-primary" type="button" id="btnRunRoute" aria-label="Run test now"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg><span>Run test now</span></button>
+      </div>
+    </div>
+    <div class="change-banner" id="rtChange" hidden role="status"></div>
+    <div class="change-banner info" id="rtRegionNote" hidden role="status"></div>
+    <div class="route-chips" id="routeChips"></div>
+    <div class="card table-card">
+      <div class="table-wrap">
+        <table class="table" id="hopTable">
+          <thead><tr><th scope="col" class="c-n">Hop</th><th scope="col">Address</th><th scope="col">Host</th><th scope="col">ASN</th><th scope="col">Network</th><th scope="col" class="c-rtt">RTT</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="empty" id="hopEmpty" hidden></div>
+      <p class="table-foot" id="hopFoot"></p>
+    </div>
+  </section>
+
+  <!-- History -->
+  <section class="page" id="page-history" data-page="history" aria-labelledby="h-history" hidden>
+    <div class="page-head">
+      <div class="page-title">
+        <h1 id="h-history">History</h1>
+        <p class="subtitle" id="hsSubtitle">Which upstream carried your tests, and how it did</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div><h2>By upstream</h2><p class="card-sub" id="upSub">Share of tests</p></div></div>
+      <div id="upstreams" class="upstreams"></div>
+    </div>
+    <div class="card table-card">
+      <div class="card-head"><div><h2>Recent tests</h2><p class="card-sub" id="recentSub" tabindex="-1" aria-live="polite">Newest first</p></div></div>
+      <div class="table-wrap">
+        <table class="table" id="histTable">
+          <thead><tr><th scope="col">Time</th><th scope="col">Route</th><th scope="col" class="num">Last hop</th><th scope="col" class="num">Riot ICMP</th><th scope="col">League</th><th scope="col">VPN</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="empty" id="histEmpty" hidden></div>
+      <div class="table-more" id="histMoreWrap" hidden>
+        <button type="button" class="btn" id="histMore"><span>Show 200 more</span></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Internet -->
+  <section class="page" id="page-internet" data-page="internet" aria-labelledby="h-internet" hidden>
+    <div class="page-head">
+      <div class="page-title">
+        <h1 id="h-internet">Internet</h1>
+        <p class="subtitle">Riot, your ISP and your country, as seen by Cloudflare Radar</p>
+      </div>
+      <div class="page-tools">
+        <span class="age" id="netAge"></span>
+        <button class="btn" type="button" id="btnRefresh" aria-label="Refresh Cloudflare data"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg><span>Refresh</span></button>
+      </div>
+    </div>
+    <div id="netState" class="state-card" hidden></div>
+    <div id="netBody">
+      <div class="card rs-card" id="rsInternet"></div>
+      <div class="grid-3">
+        <div class="card" id="edgeCard">
+          <div class="card-head"><div><h2>Your edge</h2><p class="card-sub">Where Cloudflare sees you</p></div></div>
+          <dl class="facts" id="edgeFacts"></dl>
+        </div>
+        <div class="card up-card" id="upCard">
+          <div class="card-head"><div><h2>Your ISP's upstream networks</h2><p class="card-sub" id="ispUpSub">Cloudflare Radar AS relations</p></div></div>
+          <div id="ispUpstreams" class="isp-ups"></div>
+          <p class="card-foot">Data: Cloudflare Radar (CC BY-NC 4.0)</p>
+        </div>
+        <div class="card iqi-card">
+          <div class="card-head"><div><h2>Country latency</h2><p class="card-sub" id="iqiSub">Internet quality index</p></div></div>
+          <div id="iqi" class="iqi"></div>
+        </div>
+      </div>
+      <div class="grid-net">
+        <div class="card">
+          <div class="card-head"><div><h2>Riot traffic</h2><p class="card-sub">AS6507 · last 24 hours · normalized</p></div></div>
+          <div class="chart chart-sm" id="riotTraffic"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div><h2 id="ispTrafficTitle">ISP traffic</h2><p class="card-sub" id="ispTrafficSub">Last 24 hours · normalized</p></div></div>
+          <div class="chart chart-sm" id="ispTraffic"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><h2>Events</h2><p class="card-sub">Outages, anomalies, hijacks and leaks · last 7 days</p></div></div>
+        <div id="events" class="events"></div>
+      </div>
+    </div>
+    <p class="credit">Data: Cloudflare Radar</p>
+  </section>
+
+  <!-- Settings -->
+  <section class="page" id="page-settings" data-page="settings" aria-labelledby="h-settings" hidden>
+    <div class="page-head">
+      <div class="page-title">
+        <h1 id="h-settings">Settings</h1>
+        <p class="subtitle">How Gecko Peeks runs on this PC</p>
+      </div>
+    </div>
+    <div class="card" id="regionCard">
+      <div class="card-head"><div><h2>Region</h2><p class="card-sub">The Riot servers that the tests trace</p></div></div>
+      <div class="region-row">
+        <label class="setting-name" for="regionSelect">League region</label>
+        <div class="native-select">
+          <select id="regionSelect" aria-describedby="regionLine"><option value="auto">Automatic</option></select>
+          <svg class="ico ico-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 10l4-4 4 4M8 14l4 4 4-4"/></svg>
+        </div>
+      </div>
+      <p class="region-line" id="regionLine"></p>
+      <p class="region-caveat" id="regionCaveat" hidden></p>
+    </div>
+    <div class="card">
+      <div class="card-head"><div><h2>General</h2></div></div>
+      <div class="setting-list">
+        <div class="setting">
+          <div><div class="setting-name" id="lblStart">Start with Windows</div><div class="setting-desc">Open in the tray when you sign in.</div></div>
+          <button type="button" class="switch" role="switch" aria-checked="false" aria-labelledby="lblStart" data-key="startWithWindows"><span class="knob"></span></button>
+        </div>
+        <div class="setting">
+          <div><div class="setting-name" id="lblAuto">Install updates automatically</div><div class="setting-desc">Installs when the window is hidden and League is closed.</div></div>
+          <button type="button" class="switch" role="switch" aria-checked="false" aria-labelledby="lblAuto" data-key="autoInstallUpdates"><span class="knob"></span></button>
+        </div>
+        <div class="setting">
+          <div><div class="setting-name" id="lblCloud">Cloudflare live data</div><div class="setting-desc">Shows Radar data about Riot, your ISP and your country. Also names public routers on the route: their addresses go to Google DNS, Cloudflare DNS and Team Cymru. Off: only this PC's DNS names routers.</div></div>
+          <button type="button" class="switch" role="switch" aria-checked="false" aria-labelledby="lblCloud" data-key="cloudEnabled"><span class="knob"></span></button>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div><h2>Logging</h2><p class="card-sub" id="logStatus"></p></div>
+        <button class="btn" type="button" id="btnPause" aria-label="Pause logging"><span>Pause logging</span></button>
+      </div>
+      <div class="path-row">
+        <code class="path" id="logPath"></code>
+      </div>
+      <div class="btn-row">
+        <button class="btn" type="button" id="btnOpenLog" aria-label="Open log"><span>Open log</span></button>
+        <button class="btn" type="button" id="btnOpenFolder" aria-label="Open folder"><span>Open folder</span></button>
+        <button class="btn" type="button" id="btnCopyPath" aria-label="Copy path"><span>Copy path</span></button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div><h2>Version</h2><p class="card-sub" id="verLine"></p></div>
+        <div class="btn-row-inline" id="updActions"></div>
+      </div>
+      <div class="update-state" id="updState"></div>
+      <pre class="notes" id="updNotes" hidden></pre>
+      <p class="refdata-line" id="refLine"></p>
+    </div>
+  </section>
+</main>
+
+<div class="toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
+
+<script src="map-data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

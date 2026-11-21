@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Gecko Peeks">
+  <title>Gecko Peeks</title>
+  <circle cx="16" cy="16" r="15" fill="#0a3426"/>
+  <path d="M9 22 C2 28 3 12 12 16" fill="none" stroke="#f0c86e" stroke-width="2" stroke-linecap="round"/>
+  <ellipse cx="17" cy="18.5" rx="7" ry="4.5" fill="#ece2ce"/>
+  <ellipse cx="21" cy="12.5" rx="5" ry="4.5" fill="#ece2ce"/>
+  <circle cx="22.75" cy="12.15" r="1.55" fill="#f0c86e"/>
+  <path d="M14 22 L12 26 M20 22 L22 26" fill="none" stroke="#f0c86e" stroke-width="2" stroke-linecap="round"/>
+</svg>
