@@ -49,7 +49,7 @@ You need Windows 11 (x64). The app uses the Microsoft Edge WebView2 Runtime, whi
 
 **Do not put the exe in Documents, on the Desktop or in another protected folder.** Windows Controlled Folder Access (ransomware protection) can stop the app from saving an update next to itself in those folders. Then auto-update cannot work. A folder under `%LOCALAPPDATA%` is not protected, so updates work there. Keep Controlled Folder Access on. Move the app instead.
 
-The exe is not code-signed. Windows SmartScreen can show a warning the first time you run it. Each release gives the SHA-256 of the exe in its notes and in the file `GeckoPeeks.exe.sha256`. Run this command and compare the `Hash` value (upper or lower case does not matter):
+The exe is not code-signed. Windows SmartScreen can show a warning the first time you run it. Each release has the file `GeckoPeeks.exe.sha256` with the SHA-256 of the exe. Run this command and compare the `Hash` value (upper or lower case does not matter):
 
 ```powershell
 Get-FileHash "$env:LOCALAPPDATA\Programs\GeckoPeeks\GeckoPeeks.exe" -Algorithm SHA256
@@ -150,9 +150,9 @@ Gecko Peeks has no account, no analytics and no telemetry.
 
 The app does not send CSV rows. It sends only the public router addresses in them, as listed above. It sends no adapter name, no Wi-Fi name, no PC name and no user name.
 
-Like any web request, each HTTPS call shows your public IP address to the service that answers it. The Worker code does not log requests. Cloudflare Workers logs and traces are on for the Worker, so Cloudflare keeps a record of each request for the Worker's owner. The record includes your public IP and the request URL, with any router addresses in it.
+Like any web request, each HTTPS call shows your public IP address to the service that answers it. The Worker code does not log requests. Cloudflare Workers logs and traces are on for the Worker. So Cloudflare keeps a record of each request for the Worker's owner. This record can include your public IP and the request URL, with any router addresses in it.
 
-Turn off **Cloudflare live data** to stop all the calls in the table. The window then shows no Radar data and no Riot status. Routers are named only from Windows DNS, and the region does not change by itself. Tests, logging and updates still work.
+Turn off **Cloudflare live data** to stop all the calls in the table. The window then shows no Radar data and no Riot status. Routers are named from Windows DNS and from ASNs saved in the last 30 days. The region does not change by itself. Tests, logging and updates still work.
 
 ### Cloudflare Radar data
 
@@ -185,8 +185,8 @@ Columns: `Timestamp, LeagueRunning, Upstream, HandoffNetwork, HandoffHost, Hando
 The built-in list has these networks: Zayo, Cogent, TELUS, Wolfpaw, Hurricane Electric (written `HE`), Lumen, NTT, GTT, Telia and Riot Direct. The list, with their ASNs, host name rules and city codes, is in `cloud/worker/data/refdata.json`. The app has a copy built in. With Cloudflare live data on, it gets a new copy from the Worker once a day.
 
 - **Upstream**: the last hop whose host name ends in the domain of exactly one upstream network. A hop with no known host name counts if its ASN names one. Telia counts only when no other network matches. Riot Direct is never the upstream. If still nothing matches, the app uses a hop whose ASN or mixed host name names a network. If nothing matches at all, the upstream is `Unknown`.
-- **Handoff**: the first later hop that names a different network. If a host name names two networks, Telia wins. If no later hop names another network, the Handoff columns are blank.
-- ASN names need Cloudflare live data on. With it off, only host names are used.
+- **Handoff**: the first later hop that names a different network. When the upstream came from an ASN or a mixed host name, that same hop can also be the handoff. If a host name names two networks, Telia wins. If no later hop names another network, the Handoff columns are blank.
+- Looking up new ASNs needs Cloudflare live data on. With it off, the app uses host names and the ASNs it saved in the last 30 days (`asn-cache.json`).
 
 The rules are in `GeckoPeeks/Routing/RouteClassifier.cs`.
 
@@ -260,7 +260,7 @@ Then open `http://127.0.0.1:8000/index.html?mock=full`. Other mocks include `?mo
 
 ### The Worker
 
-The Worker source is in `cloud/worker`. It needs Node.js 20 or later. The tests need no `npm install`:
+The Worker source is in `cloud/worker`. Use Node.js 20.10 or later (the tests were run on Node.js 24). The tests need no `npm install`:
 
 ```powershell
 npm test --prefix cloud/worker
