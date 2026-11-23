@@ -115,6 +115,8 @@ public sealed class ProbeScheduler : IDisposable
     private readonly object _gate = new();
     private readonly CancellationTokenSource _cts = new();
     private readonly SemaphoreSlim _wake = new(0, int.MaxValue);
+    // One ICMP user at a time: a test run, or the export's support trace.
+    private readonly SemaphoreSlim _icmpGate = new(1, 1);
     private SynchronizationContext? _ui;
 
     private bool _paused;
@@ -737,8 +739,21 @@ public sealed class ProbeScheduler : IDisposable
                 continue;
 
             Publish();
+            var gateHeld = false;
             try
             {
+                // An export trace that is running finishes first; the test then starts.
+                if (!_icmpGate.Wait(0))
+                {
+                    lock (_gate)
+                        _phase = "Waiting for the export trace";
+                    Publish();
+                    await _icmpGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    lock (_gate)
+                        _phase = "Starting test";
+                }
+
+                gateHeld = true;
                 if (riot)
                 {
                     try
@@ -758,6 +773,10 @@ public sealed class ProbeScheduler : IDisposable
                     phaseAfter = riot ? _phase : phaseBefore;
                 await RunServicesAsync(allServices, phaseAfter, cancellationToken).ConfigureAwait(false);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested && !gateHeld)
+            {
+                // Shutting down while an export trace held the gate: nothing ran.
+            }
             catch (Exception ex)
             {
                 bool leagueNow;
@@ -768,6 +787,8 @@ public sealed class ProbeScheduler : IDisposable
             }
             finally
             {
+                if (gateHeld)
+                    _icmpGate.Release();
                 bool again;
                 lock (_gate)
                 {
@@ -1339,6 +1360,24 @@ public sealed class ProbeScheduler : IDisposable
         catch
         {
             // Diagnostics never stop a test.
+        }
+    }
+
+    /// <summary>
+    /// Runs <paramref name="work"/> when no test is running, and holds tests back until it ends, so
+    /// its ICMP never overlaps a test's. Waits at most <paramref name="wait"/>, then throws TimeoutException.
+    /// </summary>
+    public async Task<T> RunExclusiveAsync<T>(Func<CancellationToken, Task<T>> work, TimeSpan wait, CancellationToken token)
+    {
+        if (!await _icmpGate.WaitAsync(wait, token).ConfigureAwait(false))
+            throw new TimeoutException("A test is running.");
+        try
+        {
+            return await work(token).ConfigureAwait(false);
+        }
+        finally
+        {
+            _icmpGate.Release();
         }
     }
 

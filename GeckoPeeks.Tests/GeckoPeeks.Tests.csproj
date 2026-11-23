@@ -56,5 +56,6 @@
     <!-- v2.2: other services (Valve relay, status feeds). -->
     <Compile Include="..\GeckoPeeks\App\ServiceSettings.cs" Link="App\ServiceSettings.cs" />
     <Compile Include="..\GeckoPeeks\App\ServiceProbes.cs" Link="App\ServiceProbes.cs" />
+    <Compile Include="..\GeckoPeeks\Net\SupportTracert.cs" Link="Net\SupportTracert.cs" />
   </ItemGroup>
 </Project>

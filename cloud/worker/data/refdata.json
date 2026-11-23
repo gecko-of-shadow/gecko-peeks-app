@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "version": "2026.11.23-2",
+ "version": "2026.11.23-3",
  "generatedAt": "2026-11-23T00:00:00Z",
  "credits": [
   "City codes: CAIDA router geolocation (2024-02 snapshot) and OurAirports",
@@ -21,7 +21,12 @@
    "serverCity": "Chicago",
    "cityConfirmed": true,
    "lat": 41.88,
-   "lon": -87.63
+   "lon": -87.63,
+   "supportTracert": {
+    "ip": "192.207.0.1",
+    "server": "NA (including Mexico)",
+    "alsoListed": []
+   }
   },
   {
    "id": "euw1",
@@ -36,7 +41,12 @@
    "serverCity": "Amsterdam",
    "cityConfirmed": true,
    "lat": 52.37,
-   "lon": 4.9
+   "lon": 4.9,
+   "supportTracert": {
+    "ip": "162.249.72.1",
+    "server": "EU",
+    "alsoListed": []
+   }
   },
   {
    "id": "eun1",
@@ -66,7 +76,12 @@
    "serverCity": "Seoul",
    "cityConfirmed": true,
    "lat": 37.57,
-   "lon": 126.98
+   "lon": 126.98,
+   "supportTracert": {
+    "ip": "103.219.128.1",
+    "server": "KR",
+    "alsoListed": []
+   }
   },
   {
    "id": "jp1",
@@ -96,7 +111,12 @@
    "serverCity": "Sao Paulo",
    "cityConfirmed": true,
    "lat": -23.55,
-   "lon": -46.63
+   "lon": -46.63,
+   "supportTracert": {
+    "ip": "45.7.37.1",
+    "server": "BR",
+    "alsoListed": []
+   }
   },
   {
    "id": "la1",
@@ -126,7 +146,12 @@
    "serverCity": "Santiago",
    "cityConfirmed": true,
    "lat": -33.45,
-   "lon": -70.67
+   "lon": -70.67,
+   "supportTracert": {
+    "ip": "151.106.249.1",
+    "server": "LATAM Chile",
+    "alsoListed": []
+   }
   },
   {
    "id": "oc1",
@@ -171,7 +196,14 @@
    "serverCity": "",
    "cityConfirmed": false,
    "lat": null,
-   "lon": null
+   "lon": null,
+   "supportTracert": {
+    "ip": "13.248.220.97",
+    "server": "EU Eastern Russia",
+    "alsoListed": [
+     "76.223.72.224"
+    ]
+   }
   },
   {
    "id": "me1",
@@ -186,7 +218,14 @@
    "serverCity": "Bahrain",
    "cityConfirmed": false,
    "lat": 26.23,
-   "lon": 50.59
+   "lon": 50.59,
+   "supportTracert": {
+    "ip": "99.83.199.240",
+    "server": "Bahrain",
+    "alsoListed": [
+     "75.2.105.73"
+    ]
+   }
   },
   {
    "id": "sg2",
@@ -201,7 +240,12 @@
    "serverCity": "Singapore",
    "cityConfirmed": false,
    "lat": 1.35,
-   "lon": 103.82
+   "lon": 103.82,
+   "supportTracert": {
+    "ip": "151.106.248.1",
+    "server": "AP (Asia Pacific) Singapore",
+    "alsoListed": []
+   }
   },
   {
    "id": "tw2",
@@ -7933,5 +7977,9 @@
     "url": null
    }
   }
- ]
+ ],
+ "supportTracertSource": {
+  "url": "https://support.riotgames.com/valorant/connectivity/how-to-use-tracert-to-obtain-network-logs",
+  "checked": "2026-11-23"
+ }
 }

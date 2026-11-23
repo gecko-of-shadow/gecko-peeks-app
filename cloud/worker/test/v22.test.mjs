@@ -77,10 +77,10 @@ test("refdata: every status feed a service names is a Worker feed", () => {
   }
 });
 
-test("health shows the 2.2.2 Worker", async () => {
-  assert.equal(VERSION, "2.2.2");
+test("health shows the 2.2.3 Worker", async () => {
+  assert.equal(VERSION, "2.2.3");
   const res = await handle(req("/v1/health"), {}, ctx());
-  assert.equal((await body(res)).version, "2.2.2");
+  assert.equal((await body(res)).version, "2.2.3");
 });
 
 // ---------- SDR mapper ----------
@@ -349,4 +349,16 @@ test("/v1/service-status: a failed feed is status null and not cached", async ()
     assert.equal(b.id, "discord");
   }, caches);
   assert.equal(caches.store.size, 0);
+});
+
+// ---------- v2.2.3: the tracert address Riot support lists ----------
+
+test("refdata: supportTracert only where Riot's page names a matching server", () => {
+  const by = Object.fromEntries(RD.regions.map((r) => [r.id, r]));
+  assert.deepEqual(by.na1.supportTracert, { ip: "192.207.0.1", server: "NA (including Mexico)", alsoListed: [] });
+  assert.deepEqual(by.euw1.supportTracert, { ip: "162.249.72.1", server: "EU", alsoListed: [] });
+  assert.equal(by.na1.targetIp, "192.207.0.5", "the app's test target does not change");
+  for (const id of ["eun1", "la1", "oc1", "jp1", "tw2", "vn2", "tr1"]) assert.equal(by[id].supportTracert, undefined, id);
+  assert.match(RD.supportTracertSource.url, /^https:\/\/support\.riotgames\.com\//);
+  assert.equal(RD.schema, 1);
 });

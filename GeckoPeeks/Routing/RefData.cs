@@ -6,12 +6,24 @@ using System.Text.RegularExpressions;
 
 namespace GeckoPeeks.Routing;
 
+/// <summary>
+/// The tracert address Riot's support page lists for one server (v2.2.3). It is for the export
+/// only: the app's own test target does not change.
+/// </summary>
+/// <param name="Server">The server name as Riot's page writes it, for example "NA (including Mexico)".</param>
+/// <param name="AlsoListed">Other addresses the page lists for the same server ("--or--").</param>
+public sealed record SupportTracert(string Ip, string Server, IReadOnlyList<string> AlsoListed);
+
 public sealed record RegionInfo(
     string Id, string ShortName, string Name,
     string LolStatusId, string ValorantShard,
     string TargetIp, string TargetKind, string TargetBasis, bool TargetInRegion,
-    string ServerCity, bool CityConfirmed, double? Lat, double? Lon)
+    string ServerCity, bool CityConfirmed, double? Lat, double? Lon,
+    SupportTracert? SupportTracert = null)
 {
+    /// <summary>Riot's tracert page, where every <see cref="SupportTracert"/> comes from.</summary>
+    public const string SupportTracertPage = "https://support.riotgames.com/valorant/connectivity/how-to-use-tracert-to-obtain-network-logs";
+
     /// <summary>"Riot Direct edge (AS6507)" for anycast, "Riot platform address (AS6507)" for dns.</summary>
     public string TargetLabel => TargetKind == "dns" ? RefData.PlatformLabel : RefData.EdgeLabel;
 }
@@ -289,7 +301,8 @@ public sealed class RefData
                     city,
                     Bool(r, "cityConfirmed"),
                     lat,
-                    lon));
+                    lon,
+                    ParseSupportTracert(r)));
             }
 
             if (regions.Count == 0)
@@ -414,6 +427,19 @@ public sealed class RefData
         }
 
         return true;
+    }
+
+    /// <summary>The optional "supportTracert" of a region. A bad value is left out; it never fails the file.</summary>
+    private static SupportTracert? ParseSupportTracert(JsonElement region)
+    {
+        if (!region.TryGetProperty("supportTracert", out var t) || t.ValueKind != JsonValueKind.Object)
+            return null;
+        var ip = Str(t, "ip") ?? "";
+        var server = (Str(t, "server") ?? "").Trim();
+        if (!IsPublicV4(ip) || server.Length is 0 or > 60)
+            return null;
+        var also = StrList(t, "alsoListed").Where(IsPublicV4).Take(4).ToList();
+        return new SupportTracert(ip, server, also);
     }
 
     private static bool Fail(string message, out string error)

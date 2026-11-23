@@ -131,11 +131,13 @@ test("refdata: 15 regions and the frozen values for na1, euw1, kr, ru", () => {
   assert.equal(RD.regions.length, 15);
   assert.deepEqual(RD.regions.map((r) => r.id), ["na1", "euw1", "eun1", "kr", "jp1", "br1", "la1", "la2", "oc1", "tr1", "ru", "me1", "sg2", "tw2", "vn2"]);
   const by = Object.fromEntries(RD.regions.map((r) => [r.id, r]));
+  // v2.2.3 adds the optional supportTracert field; the frozen v2.1 fields must not change.
+  const frozen = (r) => { const { supportTracert, ...rest } = r; return rest; };
   const ANY = "Riot Direct anycast prefix 192.207.0.0/24 (AS6507)";
-  assert.deepEqual(by.na1, { id: "na1", shortName: "NA", name: "North America", lolStatusId: "na1", valorantShard: "na", targetIp: "192.207.0.5", targetKind: "anycast", targetBasis: ANY, targetInRegion: true, serverCity: "Chicago", cityConfirmed: true, lat: 41.88, lon: -87.63 });
-  assert.deepEqual(by.euw1, { id: "euw1", shortName: "EUW", name: "EU West", lolStatusId: "euw1", valorantShard: "eu", targetIp: "185.40.64.65", targetKind: "dns", targetBasis: "prod.euw1.lol.riotgames.com resolved to this address (AS6507)", targetInRegion: true, serverCity: "Amsterdam", cityConfirmed: true, lat: 52.37, lon: 4.9 });
-  assert.deepEqual(by.kr, { id: "kr", shortName: "KR", name: "Korea", lolStatusId: "kr1", valorantShard: "kr", targetIp: "45.250.208.40", targetKind: "dns", targetBasis: "prod.kr.lol.riotgames.com resolved to this address (AS6507)", targetInRegion: true, serverCity: "Seoul", cityConfirmed: true, lat: 37.57, lon: 126.98 });
-  assert.deepEqual(by.ru, { id: "ru", shortName: "RU", name: "Russia", lolStatusId: "ru1", valorantShard: "eu", targetIp: "192.207.0.5", targetKind: "anycast", targetBasis: ANY, targetInRegion: false, serverCity: "", cityConfirmed: false, lat: null, lon: null });
+  assert.deepEqual(frozen(by.na1), { id: "na1", shortName: "NA", name: "North America", lolStatusId: "na1", valorantShard: "na", targetIp: "192.207.0.5", targetKind: "anycast", targetBasis: ANY, targetInRegion: true, serverCity: "Chicago", cityConfirmed: true, lat: 41.88, lon: -87.63 });
+  assert.deepEqual(frozen(by.euw1), { id: "euw1", shortName: "EUW", name: "EU West", lolStatusId: "euw1", valorantShard: "eu", targetIp: "185.40.64.65", targetKind: "dns", targetBasis: "prod.euw1.lol.riotgames.com resolved to this address (AS6507)", targetInRegion: true, serverCity: "Amsterdam", cityConfirmed: true, lat: 52.37, lon: 4.9 });
+  assert.deepEqual(frozen(by.kr), { id: "kr", shortName: "KR", name: "Korea", lolStatusId: "kr1", valorantShard: "kr", targetIp: "45.250.208.40", targetKind: "dns", targetBasis: "prod.kr.lol.riotgames.com resolved to this address (AS6507)", targetInRegion: true, serverCity: "Seoul", cityConfirmed: true, lat: 37.57, lon: 126.98 });
+  assert.deepEqual(frozen(by.ru), { id: "ru", shortName: "RU", name: "Russia", lolStatusId: "ru1", valorantShard: "eu", targetIp: "192.207.0.5", targetKind: "anycast", targetBasis: ANY, targetInRegion: false, serverCity: "", cityConfirmed: false, lat: null, lon: null });
   for (const r of RD.regions) {
     assert.equal(r.targetInRegion, ["na1", "euw1", "kr"].includes(r.id), r.id);
     assert.ok(["anycast", "dns"].includes(r.targetKind), r.id);
@@ -181,9 +183,9 @@ test("refdata: maps, providers and city codes", () => {
 // ---------- health, edge, refdata route ----------
 
 test("health has the Worker version and the refdata version; edge has continent", async () => {
-  assert.equal(VERSION, "2.2.2");
+  assert.equal(VERSION, "2.2.3");
   const h = await body(await handle(req("/v1/health"), {}, {}));
-  assert.equal(h.version, "2.2.2");
+  assert.equal(h.version, "2.2.3");
   assert.equal(h.refdata, RD.version);
   const e = await body(await handle(req("/v1/edge"), {}, {}));
   assert.equal(e.continent, "NA");

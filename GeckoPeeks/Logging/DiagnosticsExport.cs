@@ -12,6 +12,7 @@ namespace GeckoPeeks.Logging;
 /// <param name="ActivityFolders">Folders that hold activity.log and its monthly archives.</param>
 /// <param name="RegionNow">For example "NA (North America), automatic".</param>
 /// <param name="TargetNow">For example "192.207.0.5".</param>
+/// <param name="Support">The trace to the address Riot support asks for, made at export time; null = not tried.</param>
 public sealed record ExportRequest(
     string ZipPath,
     DateTime? FromUtc,
@@ -22,7 +23,14 @@ public sealed record ExportRequest(
     IReadOnlyList<RouteRow> CsvRows,
     IReadOnlyList<string> ActivityFolders,
     string RegionNow,
-    string TargetNow);
+    string TargetNow,
+    SupportTrace? Support = null);
+
+/// <summary>The export's trace to the tracert address Riot's support page lists for the region.</summary>
+/// <param name="RegionShortName">For example "NA".</param>
+/// <param name="Address">Null when Riot's page lists no address for this region.</param>
+/// <param name="Result">Null when no trace ran.</param>
+public sealed record SupportTrace(string RegionShortName, GeckoPeeks.Routing.SupportTracert? Address, GeckoPeeks.Net.TracertResult? Result);
 
 public sealed record ExportResult(int Tests, int CsvRows, int ActivityLines, int CloudLines, int LeagueLines, int ServiceLines = 0);
 
@@ -99,6 +107,16 @@ public static class DiagnosticsExport
                 Add(zip, "league.jsonl", w => WriteLines(w, SharedText.ReadLines(leagueFile), "\n"));
                 foreach (var (id, file) in serviceFiles)
                     Add(zip, "services/" + id + ".jsonl", w => WriteLines(w, SharedText.ReadLines(file), "\n"));
+                // Riot's own steps save the output as Tracert.txt; the file is tracert's output as it came.
+                if (request.Support?.Result is { Output.Length: > 0 } trace)
+                {
+                    Add(zip, "Tracert.txt", w =>
+                    {
+                        w.Write(trace.Output);
+                        if (trace.Outcome != "finished" && trace.Note.Length > 0)
+                            w.Write("\r\n[Gecko Peeks] " + trace.Note + "\r\n");
+                    });
+                }
             }
 
             File.Move(temp, request.ZipPath, overwrite: true);
@@ -238,6 +256,8 @@ public static class DiagnosticsExport
 
         s.AppendLine();
 
+        SupportSection(s, request.Support);
+
         // Per-test detail (2.1.5 on).
         s.AppendLine("Test details (from version 2.1.5 on)");
         s.AppendLine("-------------------------------------");
@@ -368,12 +388,54 @@ public static class DiagnosticsExport
         s.AppendLine($"activity.log   {activityLines} lines of what the app did.");
         s.AppendLine($"cloud.jsonl    {counts.Cloud} Cloudflare and Riot status answers (only when they changed).");
         s.AppendLine($"league.jsonl   {counts.League} League ping samples.");
+        if (request.Support?.Result is { Output.Length: > 0 })
+            s.AppendLine("Tracert.txt    the trace to the address Riot support asks for (see above).");
         foreach (var (id, n) in counts.ServiceLines)
             s.AppendLine($"services/{id}.jsonl  {n} tests of this service, with every hop, the target class and how the target was chosen.");
         s.AppendLine();
         s.AppendLine("Privacy: " + PrivacyText);
         s.AppendLine("Gecko Peeks made this zip on this PC and sent it nowhere.");
         return s.ToString();
+    }
+
+    /// <summary>The trace to the address Riot support asks for. Facts only; it never guesses an address.</summary>
+    private static void SupportSection(StringBuilder s, SupportTrace? support)
+    {
+        s.AppendLine("Trace to the address Riot support asks for");
+        s.AppendLine("------------------------------------------");
+        if (support == null)
+        {
+            s.AppendLine("Not run in this export.");
+        }
+        else if (support.Address is not { } address)
+        {
+            s.AppendLine($"Riot publishes no tracert address for this region ({support.RegionShortName}). No extra trace was run.");
+            s.AppendLine("Source checked: " + GeckoPeeks.Routing.RegionInfo.SupportTracertPage);
+        }
+        else
+        {
+            s.AppendLine($"Region {support.RegionShortName}: Riot's tracert page lists {address.Ip} for its server \"{address.Server}\"."
+                + (address.AlsoListed.Count > 0 ? $" It also lists {string.Join(", ", address.AlsoListed)}; only the first was traced." : ""));
+            s.AppendLine("Source: " + GeckoPeeks.Routing.RegionInfo.SupportTracertPage);
+            s.AppendLine("That page is on Riot's VALORANT support site. This app found no League support page with tracert addresses, so this is the matching server on that page.");
+            s.AppendLine("It is not the address the app's own tests trace. The app's test target and route log do not change.");
+            if (support.Result is not { } r)
+                s.AppendLine("Trace: not run.");
+            else
+            {
+                var secs = Math.Round(r.Seconds).ToString(CultureInfo.InvariantCulture);
+                var answered = r.Reached ? $"{address.Ip} answered."
+                    : r.Outcome == "finished" ? $"{address.Ip} did not answer." : $"{address.Ip} had not answered by then.";
+                s.AppendLine(r.Outcome switch
+                {
+                    "finished" => $"Trace: finished in {secs} s; {answered} The output is in Tracert.txt (Windows tracert as in Riot's steps, with a 1-second wait per probe).",
+                    "timedOut" => $"Trace: not finished. {r.Note}" + (r.Output.Length > 0 ? $" {answered} The part it got is in Tracert.txt." : ""),
+                    _ => $"Trace: failed. {r.Note}" + (r.Output.Length > 0 ? " The output it gave is in Tracert.txt." : ""),
+                });
+            }
+        }
+
+        s.AppendLine();
     }
 
     /// <summary>

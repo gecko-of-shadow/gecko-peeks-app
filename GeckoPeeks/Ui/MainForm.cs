@@ -2,6 +2,7 @@ using System.Diagnostics;
 using GeckoPeeks.App;
 using GeckoPeeks.Cloud;
 using GeckoPeeks.Logging;
+using GeckoPeeks.Net;
 using GeckoPeeks.Text;
 using GeckoPeeks.Ui.State;
 using GeckoPeeks.Ui.WebHost;
@@ -107,6 +108,16 @@ internal sealed class MainForm : Form
 
     public void ExitApplication()
     {
+        // Tray Exit does not raise ApplicationExit: stop an export trace here too.
+        try
+        {
+            _exportCancel.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already gone.
+        }
+
         _exitRequested = true;
         _releaseTimer.Stop();
         Close();
@@ -167,6 +178,26 @@ internal sealed class MainForm : Form
 
     private bool _exporting;
 
+    // Cancels an export trace when the app exits, so no hidden tracert.exe is left running.
+    private readonly CancellationTokenSource _exportCancel = CreateExportCancel();
+
+    private static CancellationTokenSource CreateExportCancel()
+    {
+        var cts = new CancellationTokenSource();
+        Application.ApplicationExit += (_, _) =>
+        {
+            try
+            {
+                cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Already gone.
+            }
+        };
+        return cts;
+    }
+
     /// <summary>
     /// Says what the zip holds, asks where to save it, then builds it off the UI thread.
     /// Nothing is uploaded. A folder Windows protects gives a clear message.
@@ -185,7 +216,9 @@ internal sealed class MainForm : Form
                 + "- the route log and the app's activity log\n"
                 + "- saved Cloudflare and Riot status data\n"
                 + "- League's own ping during matches\n"
-                + "- the tests of the other services you turned on\n\n"
+                + "- the tests of the other services you turned on\n"
+                + "- a new trace to the address Riot support asks for in your region (Tracert.txt), from Riot's VALORANT tracert page, when it lists one; "
+                + "it takes up to 3 minutes, longer if a test is running\n\n"
                 + "Check it before you share it: " + DiagnosticsExport.PrivacyText + "\n\n"
                 + "Gecko Peeks saves it on this PC only. Nothing is uploaded.",
                 "Export diagnostics", MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
@@ -219,8 +252,9 @@ internal sealed class MainForm : Form
                 _scheduler.ActivityFolders,
                 snapshot.RegionText,
                 snapshot.TargetText);
+            var support = await SupportTraceAsync().ConfigureAwait(true);
             _bridge.Toast("Making the diagnostics zip…");
-            var result = await Task.Run(() => DiagnosticsExport.Write(request with { CsvRows = ReadRows() })).ConfigureAwait(true);
+            var result = await Task.Run(() => DiagnosticsExport.Write(request with { CsvRows = ReadRows(), Support = support })).ConfigureAwait(true);
             var name = Path.GetFileName(dialog.FileName);
             _scheduler.NoteActivity($"Diagnostics saved: {name} ({result.CsvRows} saved tests, {result.Tests} test details).");
             _bridge.Toast("Saved " + name + ".", "good");
@@ -247,6 +281,55 @@ internal sealed class MainForm : Form
         {
             _exporting = false;
         }
+    }
+
+    /// <summary>
+    /// The trace to the address Riot support asks for in the current region, for the zip. It runs off
+    /// the UI thread, never at the same time as a test, and has a time limit; the export goes on
+    /// without it (with a note) when it fails. Demo and Dev builds that cannot probe skip it.
+    /// </summary>
+    private async Task<SupportTrace> SupportTraceAsync()
+    {
+        var region = _core.Region.Current.Region;
+        if (region.SupportTracert is not { } address)
+            return new SupportTrace(region.ShortName, null, null);
+        // Production only: Dev and Demo builds send no probes outside their own rules.
+        if (_demo || !AppIsolation.AllowsProbes(AppIsolation.Profile))
+            return new SupportTrace(region.ShortName, address,
+                new TracertResult("failed", "", "This build sends no probes (Demo or Dev).", 0));
+
+        _bridge.Toast($"Tracing {address.Ip}, the address Riot's VALORANT tracert page lists for {region.ShortName}. This takes up to 3 minutes, longer if a test is running…");
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var work = _scheduler.RunExclusiveAsync(
+            token => SupportTracertRunner.RunAsync(address, token), TimeSpan.FromMinutes(3), _exportCancel.Token);
+        // Progress: a short note every 30 seconds until the trace ends.
+        while (await Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds(30))).ConfigureAwait(true) != work)
+            _bridge.Toast($"Still working on the trace to {address.Ip} ({clock.Elapsed.TotalSeconds:0} s). The zip is made when it ends.");
+
+        TracertResult result;
+        try
+        {
+            result = await work.ConfigureAwait(true);
+        }
+        catch (TimeoutException)
+        {
+            result = new TracertResult("failed", "", "A test was running for more than 3 minutes, so the trace did not run.", 0);
+        }
+        catch (OperationCanceledException)
+        {
+            result = new TracertResult("failed", "", "The trace was cancelled (Gecko Peeks closed).", 0);
+        }
+        catch (Exception ex)
+        {
+            result = new TracertResult("failed", "", "The trace could not run: " + ex.Message, 0);
+        }
+
+        var outcome = result.Outcome == "finished"
+            ? "finished; " + address.Ip + (result.Reached ? " answered" : " did not answer")
+            : "not finished: " + result.Note;
+        _bridge.Toast("Trace " + outcome + ".", result.Outcome == "finished" ? "good" : "warn");
+        _scheduler.NoteActivity($"Export: trace to {address.Ip} (from Riot's VALORANT tracert page) {outcome}");
+        return new SupportTrace(region.ShortName, address, result);
     }
 
     private IReadOnlyList<RouteRow> ReadRows()
