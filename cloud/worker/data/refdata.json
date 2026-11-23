@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "version": "2026.11.23-1",
+ "version": "2026.11.23-2",
  "generatedAt": "2026-11-23T00:00:00Z",
  "credits": [
   "City codes: CAIDA router geolocation (2024-02 snapshot) and OurAirports",
@@ -683,6 +683,60 @@
    "domains": [],
    "stems": [],
    "cityGroup": "cloudflare",
+   "tier": "destination"
+  },
+  {
+   "key": "akamai",
+   "name": "Akamai",
+   "asns": [
+    20940,
+    16625,
+    33905,
+    21342,
+    21357,
+    21399,
+    35994,
+    34164,
+    18680,
+    18717,
+    12222,
+    23454,
+    23455,
+    31107,
+    31108,
+    31109,
+    31110,
+    31377,
+    33047,
+    34850,
+    35204,
+    39836,
+    43639,
+    55409,
+    55770
+   ],
+   "domains": [],
+   "stems": [],
+   "cityGroup": "akamai",
+   "tier": "destination"
+  },
+  {
+   "key": "microsoft",
+   "name": "Microsoft",
+   "asns": [
+    8075,
+    8068,
+    8069,
+    8070,
+    8071,
+    8072,
+    8073,
+    8074,
+    12076
+   ],
+   "domains": [],
+   "stems": [],
+   "cityGroup": "microsoft",
    "tier": "destination"
   }
  ],
@@ -7623,6 +7677,258 @@
    "support": {
     "asks": [
      "voice debug log"
+    ],
+    "url": null
+   }
+  },
+  {
+   "id": "psn",
+   "name": "PlayStation Network",
+   "group": "console",
+   "requires": [
+    "services-v1",
+    "hostname",
+    "status-feed",
+    "console-switch"
+   ],
+   "targetClass": "shared-path",
+   "owner": {
+    "name": "Akamai",
+    "asns": [
+     20940,
+     16625,
+     33905,
+     21342,
+     21357,
+     21399,
+     35994,
+     34164,
+     18680,
+     18717,
+     12222,
+     23454,
+     23455,
+     31107,
+     31108,
+     31109,
+     31110,
+     31377,
+     33047,
+     34850,
+     35204,
+     39836,
+     43639,
+     55409,
+     55770
+    ]
+   },
+   "target": {
+    "kind": "hostname",
+    "host": "ps5.np.playstation.net",
+    "icmpExpected": true,
+    "label": "Shared path to the Akamai edge in front of PlayStation Network (ICMP). Probably the same edge your console uses"
+   },
+   "caveat": "Shared path from your home to the PlayStation edge. This is not your console's ping, NAT type or Wi-Fi. The console can use other DNS or other servers.",
+   "processes": [],
+   "processesVerified": false,
+   "status": {
+    "feedByCountry": {
+     "AE": "psn-scee",
+     "AR": "psn-scea",
+     "AT": "psn-scee",
+     "AU": "psn-scee",
+     "BE": "psn-scee",
+     "BG": "psn-scee",
+     "BH": "psn-scee",
+     "BO": "psn-scea",
+     "BR": "psn-scea",
+     "CA": "psn-scea",
+     "CH": "psn-scee",
+     "CL": "psn-scea",
+     "CN": "psn-sceja",
+     "CO": "psn-scea",
+     "CR": "psn-scea",
+     "CY": "psn-scee",
+     "CZ": "psn-scee",
+     "DE": "psn-scee",
+     "DK": "psn-scee",
+     "EC": "psn-scea",
+     "ES": "psn-scee",
+     "FI": "psn-scee",
+     "FR": "psn-scee",
+     "GB": "psn-scee",
+     "GR": "psn-scee",
+     "GT": "psn-scea",
+     "HK": "psn-sceja",
+     "HN": "psn-scea",
+     "HR": "psn-scee",
+     "HU": "psn-scee",
+     "ID": "psn-sceja",
+     "IE": "psn-scee",
+     "IL": "psn-scee",
+     "IN": "psn-scee",
+     "IS": "psn-scee",
+     "IT": "psn-scee",
+     "JP": "psn-sceja",
+     "KR": "psn-sceja",
+     "KW": "psn-scee",
+     "LB": "psn-scee",
+     "LU": "psn-scee",
+     "MT": "psn-scee",
+     "MX": "psn-scea",
+     "MY": "psn-sceja",
+     "NI": "psn-scea",
+     "NL": "psn-scee",
+     "NO": "psn-scee",
+     "NZ": "psn-scee",
+     "OM": "psn-scee",
+     "PA": "psn-scea",
+     "PE": "psn-scea",
+     "PH": "psn-sceja",
+     "PL": "psn-scee",
+     "PT": "psn-scee",
+     "PY": "psn-scea",
+     "QA": "psn-scee",
+     "RO": "psn-scee",
+     "RS": "psn-sceja",
+     "RU": "psn-scee",
+     "SA": "psn-scee",
+     "SE": "psn-scee",
+     "SG": "psn-sceja",
+     "SI": "psn-scee",
+     "SK": "psn-scee",
+     "SV": "psn-scea",
+     "TH": "psn-sceja",
+     "TR": "psn-scee",
+     "TW": "psn-sceja",
+     "UA": "psn-scee",
+     "US": "psn-scea",
+     "UY": "psn-scea",
+     "VN": "psn-sceja",
+     "ZA": "psn-scee"
+    },
+    "feedByContinent": {
+     "NA": "psn-scea",
+     "SA": "psn-scea",
+     "EU": "psn-scee",
+     "AF": "psn-scee",
+     "OC": "psn-scee",
+     "AS": "psn-sceja"
+    }
+   },
+   "statusNote": "PlayStation's own status page (status.playstation.com), for the region file that lists your country. Shown when your Cloudflare location is known.",
+   "support": {
+    "asks": [
+     "NAT type",
+     "ports"
+    ],
+    "url": null
+   }
+  },
+  {
+   "id": "xbox",
+   "name": "Xbox network",
+   "group": "console",
+   "requires": [
+    "services-v1",
+    "hostname",
+    "status-feed",
+    "console-switch"
+   ],
+   "targetClass": "shared-path",
+   "owner": {
+    "name": "Microsoft",
+    "asns": [
+     8075,
+     8068,
+     8069,
+     8070,
+     8071,
+     8072,
+     8073,
+     8074,
+     12076
+    ]
+   },
+   "target": {
+    "kind": "hostname",
+    "host": "user.auth.xboxlive.com",
+    "icmpExpected": true,
+    "label": "Shared path to Xbox sign-in in Microsoft's network (ICMP). Probably the same edge your console uses"
+   },
+   "caveat": "Shared path from your home to the Xbox edge. This is not your console's ping, NAT type or Wi-Fi. The console can use other DNS or other servers.",
+   "processes": [],
+   "processesVerified": false,
+   "status": {
+    "feed": "xbox"
+   },
+   "statusNote": "Xbox's own status page (the United States feed).",
+   "support": {
+    "asks": [
+     "NAT type",
+     "ports"
+    ],
+    "url": null
+   }
+  },
+  {
+   "id": "nintendo",
+   "name": "Nintendo network",
+   "group": "console",
+   "requires": [
+    "services-v1",
+    "hostname",
+    "status-feed",
+    "console-switch"
+   ],
+   "targetClass": "shared-path",
+   "owner": {
+    "name": "Akamai",
+    "asns": [
+     20940,
+     16625,
+     33905,
+     21342,
+     21357,
+     21399,
+     35994,
+     34164,
+     18680,
+     18717,
+     12222,
+     23454,
+     23455,
+     31107,
+     31108,
+     31109,
+     31110,
+     31377,
+     33047,
+     34850,
+     35204,
+     39836,
+     43639,
+     55409,
+     55770
+    ]
+   },
+   "target": {
+    "kind": "hostname",
+    "host": "ctest.cdn.nintendo.net",
+    "icmpExpected": true,
+    "label": "Shared path to the Akamai edge for Nintendo's connection test name (ICMP). Probably the same edge your console uses"
+   },
+   "caveat": "Shared path from your home to the Nintendo edge. This is not your console's ping, NAT type or Wi-Fi. The console can use other DNS or other servers. The role of this name comes from the community, not from Nintendo.",
+   "processes": [],
+   "processesVerified": false,
+   "status": {
+    "feed": "nintendo"
+   },
+   "statusNote": "Nintendo's own network status page (the United States feed; times in Pacific Time).",
+   "support": {
+    "asks": [
+     "NAT type",
+     "ports"
     ],
     "url": null
    }

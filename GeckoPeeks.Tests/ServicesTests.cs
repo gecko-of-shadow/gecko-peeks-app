@@ -70,7 +70,7 @@ public sealed class ServicesTests : IDisposable
     [Theory]
     [InlineData("\"targetClass\":\"owned\"", "\"targetClass\":\"best\"")]
     [InlineData("\"kind\":\"sdr-nearest-pop\"", "\"kind\":\"user-entered\"")]
-    [InlineData("\"sdr-nearest-pop\"]", "\"sdr-nearest-pop\",\"console-switch\"]")]
+    [InlineData("\"sdr-nearest-pop\"]", "\"sdr-nearest-pop\",\"future-feature\"]")]
     [InlineData("\"requires\":[\"services-v1\",\"sdr-nearest-pop\"],", "")]
     [InlineData("\"appId\":730", "\"appId\":\"730\"")]
     [InlineData("\"asns\":[32590]", "\"asns\":[\"x\"]")]
@@ -148,6 +148,8 @@ public sealed class ServicesTests : IDisposable
         public string? SdrAnswer;
         public string? StatusAnswer;
         public string? Resolved = "104.16.0.10";
+        public string? Continent = "NA";
+        public string? Country;
         public readonly Dictionary<string, double?> Pings = new();
         public readonly List<string> Traced = new();
         public Func<string, RouteRow>? Row;
@@ -167,7 +169,7 @@ public sealed class ServicesTests : IDisposable
         var handler = new StubHandler(path => path.StartsWith("/v1/sdr", StringComparison.Ordinal) ? rig.SdrAnswer
             : path.StartsWith("/v1/service-status", StringComparison.Ordinal) ? rig.StatusAnswer : null);
         var client = new CloudClient(handler, "https://example.invalid");
-        rig.Feeds = new ServiceFeeds(client, () => rig.CloudOn, () => rig.Probes.Enabled(), () => "NA", () => rig.Now);
+        rig.Feeds = new ServiceFeeds(client, () => rig.CloudOn, () => rig.Probes.Enabled(), () => rig.Continent, () => rig.Now, () => rig.Country);
         rig.Store = new DiagnosticsStore(Path.Combine(_folder, "Diagnostics"), "9.9.9");
         rig.Probes = new ServiceProbes(() => RefData.BuiltIn, rig.Settings, rig.Feeds, rig.Resolver, rig.Store,
             () => rig.CloudOn, () => rig.Location)
@@ -553,6 +555,115 @@ public sealed class ServicesTests : IDisposable
         Assert.Null(rig.Feeds.Status("discord"));
     }
 
+    // ---------- Consoles (v2.2.2) ----------
+
+    [Fact]
+    public void Built_in_refdata_has_three_console_services_as_shared_path_only()
+    {
+        var consoles = RefData.BuiltIn.Services.Where(s => s.Group == "console").ToList();
+        Assert.Equal(new[] { "psn", "xbox", "nintendo" }, consoles.Select(s => s.Id));
+        Assert.All(consoles, c =>
+        {
+            Assert.Equal(TargetClass.SharedPath, c.Class);
+            Assert.Equal("Shared path only", c.ClassText);
+            Assert.Equal(ServiceInfo.KindHostname, c.Target.Kind);
+            Assert.Contains("Probably the same edge", c.Target.Label, StringComparison.Ordinal);
+            Assert.Contains("not your console's ping, NAT type or Wi-Fi", c.Caveat, StringComparison.Ordinal);
+            Assert.Empty(c.Processes);
+        });
+        Assert.Equal("Microsoft", RefData.BuiltIn.ProviderForAsn(8075)?.Name);
+        Assert.Equal("Akamai", RefData.BuiltIn.ProviderForAsn(20940)?.Name);
+    }
+
+    [Fact]
+    public void A_2_2_1_app_skips_the_consoles()
+    {
+        using var doc = JsonDocument.Parse(File.ReadAllText(RefDataPath()));
+        var old = new HashSet<string>(StringComparer.Ordinal) { "services-v1", "sdr-nearest-pop", "hostname", "status-feed" };
+        Assert.Equal(new[] { "valve-sdr", "discord" }, ServiceCatalog.Parse(doc.RootElement, old).Select(s => s.Id));
+    }
+
+    [Theory]
+    [InlineData("NA", "psn-scea")]
+    [InlineData("SA", "psn-scea")]
+    [InlineData("EU", "psn-scee")]
+    [InlineData("OC", "psn-scee")]
+    [InlineData("AS", "psn-sceja")]
+    [InlineData(null, null)]
+    [InlineData("AN", null)]
+    public void PlayStation_feed_follows_the_cloudflare_continent(string? continent, string? feed)
+    {
+        var rig = NewRig(on: false);
+        rig.Continent = continent;
+        var psn = RefData.BuiltIn.FindService("psn")!;
+        Assert.Equal(feed, rig.Feeds.FeedFor(psn));
+        Assert.Equal("xbox", rig.Feeds.FeedFor(RefData.BuiltIn.FindService("xbox")!));
+    }
+
+    [Theory]
+    [InlineData("AE", "AS", "psn-scee")]  // Gulf states are in PlayStation's Europe file
+    [InlineData("IN", "AS", "psn-scee")]
+    [InlineData("IL", "AS", "psn-scee")]
+    [InlineData("RS", "EU", "psn-sceja")] // Serbia is in the Asia file
+    [InlineData("US", "NA", "psn-scea")]
+    [InlineData("PK", "AS", "psn-sceja")] // not listed: the continent decides
+    public void PlayStation_feed_follows_the_country_first(string country, string continent, string feed)
+    {
+        var rig = NewRig(on: false);
+        rig.Country = country;
+        rig.Continent = continent;
+        Assert.Equal(feed, rig.Feeds.FeedFor(RefData.BuiltIn.FindService("psn")!));
+    }
+
+    [Fact]
+    public async Task Any_akamai_network_counts_as_the_owner()
+    {
+        var rig = NewRig(on: false);
+        rig.Settings.Set("nintendo", true);
+        rig.Row = ip => MeasuredRow(ip, targetAsn: 33905);
+        await Run(rig);
+        Assert.True(rig.Probes.Last("nintendo")!.OwnerMatch);
+    }
+
+    [Fact]
+    public async Task The_switch_turned_on_mid_interval_waits_for_5_minutes()
+    {
+        var rig = NewRig(on: false);
+        rig.Settings.Set("xbox", true);
+        await Run(rig);
+        rig.Now = rig.Now.AddMinutes(2);
+        rig.Settings.SetConsolePlaying(true);
+        Assert.False(rig.Probes.AnyDue());
+        rig.Now = rig.Now.AddMinutes(3);
+        Assert.True(rig.Probes.AnyDue());
+    }
+
+    [Fact]
+    public async Task Playing_on_console_runs_console_services_every_5_minutes_only()
+    {
+        var rig = NewRig(on: false);
+        rig.Settings.Set("xbox", true);
+        rig.Settings.Set("discord", true);
+        rig.Row = ip => MeasuredRow(ip, targetAsn: 8075);
+        await Run(rig);
+        Assert.Equal(2, rig.Traced.Count);
+
+        rig.Now = rig.Now.AddMinutes(5);
+        await Run(rig);
+        Assert.Equal(2, rig.Traced.Count); // switch off: nothing is due after 5 minutes
+
+        rig.Settings.SetConsolePlaying(true);
+        Assert.True(rig.Probes.AnyDue());
+        await Run(rig);
+        Assert.Equal(3, rig.Traced.Count); // only the console service ran
+        Assert.Equal(TimeSpan.FromMinutes(5), rig.Probes.IntervalFor(RefData.BuiltIn.FindService("xbox")!));
+        Assert.Equal(TimeSpan.FromMinutes(15), rig.Probes.IntervalFor(RefData.BuiltIn.FindService("discord")!));
+
+        rig.Settings.SetConsolePlaying(false);
+        rig.Now = rig.Now.AddMinutes(5);
+        Assert.False(rig.Probes.AnyDue());
+    }
+
     // ---------- window state ----------
 
     [Fact]
@@ -645,7 +756,8 @@ public sealed class ServicesTests : IDisposable
         Assert.Equal(2, raised);
         var b = new ServiceSettings(path);
         Assert.True(b.IsOn("valve-sdr"));
-        Assert.True(b.ConsolePlaying);
+        Assert.False(b.ConsolePlaying); // the console switch turns off on restart
+        Assert.DoesNotContain("consolePlaying", File.ReadAllText(path), StringComparison.Ordinal);
         Assert.Equal(new[] { "valve-sdr" }, b.On);
     }
 

@@ -31,7 +31,8 @@ public sealed class CoreServices : IDisposable
         Cloud.Changed += SaveCloud;
 
         ServiceSettings = serviceSettings;
-        Feeds = new ServiceFeeds(client, () => Cloud.Enabled, () => Services.Enabled(), () => EdgeText("continent"));
+        Feeds = new ServiceFeeds(client, () => Cloud.Enabled, () => Services.Enabled(), () => EdgeText("continent"),
+            country: () => EdgeText("country"));
         Feeds.Answered += (kind, json) => Diagnostics.RecordCloud(kind, json, DateTime.UtcNow);
         Services = new ServiceProbes(() => RefData.Current, serviceSettings, Feeds, resolver, diagnostics,
             () => Cloud.Enabled, EdgeLocation);

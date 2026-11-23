@@ -15,7 +15,7 @@ public class RefDataBuiltInTests
         Assert.Equal(1, data.Schema);
         Assert.NotEqual("builtin-minimal", data.Version);
         Assert.Equal(15, data.Regions.Count);
-        Assert.Equal(12, data.Providers.Count); // 10 route providers, Valve and Cloudflare (v2.2)
+        Assert.Equal(14, data.Providers.Count); // 10 route providers; Valve, Cloudflare, Akamai, Microsoft (v2.2)
         Assert.NotEmpty(data.CityCodes);
         Assert.Equal("na1", data.DefaultRegion.Id);
     }

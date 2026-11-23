@@ -81,6 +81,7 @@ public sealed class ServiceFeeds : IDisposable
     private readonly Func<bool> _enabled;
     private readonly Func<IReadOnlyList<ServiceInfo>> _wanted;
     private readonly Func<string?> _continent;
+    private readonly Func<string?> _country;
     private readonly Func<DateTime> _utcNow;
     private readonly Dictionary<int, SdrConfig> _sdr = new();
     private readonly Dictionary<string, FeedAnswer> _status = new(StringComparer.Ordinal);
@@ -94,8 +95,9 @@ public sealed class ServiceFeeds : IDisposable
     /// <param name="wanted">The services that are on now.</param>
     /// <param name="continent">The edge continent ("NA", "EU"...), for feeds chosen by continent.</param>
     public ServiceFeeds(CloudClient client, Func<bool> enabled, Func<IReadOnlyList<ServiceInfo>> wanted,
-        Func<string?> continent, Func<DateTime>? utcNow = null)
+        Func<string?> continent, Func<DateTime>? utcNow = null, Func<string?>? country = null)
     {
+        _country = country ?? (() => null);
         _client = client;
         _enabled = enabled;
         _wanted = wanted;
@@ -129,11 +131,17 @@ public sealed class ServiceFeeds : IDisposable
             return _sdr.TryGetValue(app, out var c) && _utcNow() - c.FetchedUtc <= SdrMaxAge && _enabled() ? c : null;
     }
 
-    /// <summary>The feed id a service reads now: its fixed feed, else the one for the edge continent.</summary>
+    /// <summary>
+    /// The feed id a service reads now: the one for the edge country, else for the edge continent,
+    /// else its fixed feed. Null when it needs a location that is not known yet.
+    /// </summary>
     public string? FeedFor(ServiceInfo service)
     {
         if (service.Status is not { } st)
             return null;
+        var country = (_country() ?? "").Trim().ToUpperInvariant();
+        if (country.Length == 2 && st.FeedByCountry != null && st.FeedByCountry.TryGetValue(country, out var byCountry))
+            return byCountry;
         var continent = (_continent() ?? "").Trim().ToUpperInvariant();
         if (continent.Length == 2 && st.FeedByContinent.TryGetValue(continent, out var byContinent))
             return byContinent;

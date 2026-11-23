@@ -14,7 +14,7 @@
     <AssemblyName Condition="'$(GeckoPeeksDev)' == 'true'">GeckoPeeksDev</AssemblyName>
     <DefineConstants Condition="'$(GeckoPeeksDev)' == 'true'">$(DefineConstants);GECKO_PEEKS_DEV</DefineConstants>
     <RootNamespace>GeckoPeeks</RootNamespace>
-    <Version>2.2.1</Version>
+    <Version>2.2.2</Version>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <AssemblyTitle>Gecko Peeks</AssemblyTitle>
     <Product>Gecko Peeks</Product>

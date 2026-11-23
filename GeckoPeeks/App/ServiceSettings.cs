@@ -7,8 +7,9 @@ namespace GeckoPeeks.App;
 
 /// <summary>
 /// Which other services are on (all are off until the user turns one on), and the
-/// "Playing on console" switch. File: {"on":["valve-sdr"],"consolePlaying":false}.
-/// A null path keeps it in memory only.
+/// "Playing on console" switch. File: {"on":["valve-sdr"]}. The console switch is kept in memory
+/// only: it turns off when the app restarts, so a forgotten switch never runs every 5 minutes
+/// for good. A null path keeps everything in memory only.
 /// </summary>
 public sealed class ServiceSettings
 {
@@ -101,7 +102,7 @@ public sealed class ServiceSettings
             var on = new JsonArray();
             foreach (var id in _on)
                 on.Add(id);
-            json = new JsonObject { ["on"] = on, ["consolePlaying"] = _consolePlaying }.ToJsonString();
+            json = new JsonObject { ["on"] = on }.ToJsonString();
         }
 
         try
@@ -134,13 +135,10 @@ public sealed class ServiceSettings
                         _on.Add(id);
                 }
             }
-
-            _consolePlaying = root.TryGetProperty("consolePlaying", out var cp) && cp.ValueKind == JsonValueKind.True;
         }
         catch
         {
             _on.Clear();
-            _consolePlaying = false;
         }
     }
 }

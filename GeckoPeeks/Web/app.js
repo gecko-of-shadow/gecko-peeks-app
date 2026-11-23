@@ -1432,7 +1432,7 @@
           classId: str(x.classId), classText: str(x.classText) || 'Target class not known',
           ownerName: str(x.ownerName), ownerAsns: arr(x.ownerAsns).filter(isNum),
           targetKind: str(x.targetKind), targetLabel: str(x.targetLabel), caveat: str(x.caveat), statusNote: str(x.statusNote),
-          feedId: x.feedId ? str(x.feedId) : '', feed: x.feed && typeof x.feed === 'object' ? x.feed : null,
+          hasFeed: bool(x.hasFeed), feedId: x.feedId ? str(x.feedId) : '', feed: x.feed && typeof x.feed === 'object' ? x.feed : null,
           feedAgeSec: numOrNull(x.feedAgeSec), lastAgeSec: numOrNull(x.lastAgeSec),
           result: r ? {
             ageSec: numOrNull(r.ageSec), outcome: str(r.outcome), reason: str(r.reason),
@@ -1526,7 +1526,8 @@
       box.appendChild(h('div', { class: 'rs-none', text: 'Not available. ' + (r.reason || '') }));
     }
     if (sv.caveat) box.appendChild(h('div', { class: 'rs-ev-text', text: sv.caveat }));
-    if (!sv.feedId && sv.statusNote) box.appendChild(h('div', { class: 'rs-ev-when', text: 'Status: ' + sv.statusNote }));
+    if (sv.hasFeed && !sv.feedId) box.appendChild(h('div', { class: 'rs-ev-when', text: 'Status: not available. Your Cloudflare location is not known yet, or it has no region feed.' }));
+    else if (!sv.feedId && sv.statusNote) box.appendChild(h('div', { class: 'rs-ev-when', text: 'Status: ' + sv.statusNote }));
     if (sv.feedId) box.appendChild(svcFeed(sv));
     return box;
   }
@@ -1555,6 +1556,8 @@
       h('span', { class: 'rs-ev-when', style: 'margin:0', text: name + ' status' }),
       h('span', { class: 'badge ' + b[1], text: b[0].toUpperCase() })));
     if (str(st.description)) wrap.appendChild(h('div', { class: 'rs-ev-text', text: 'The feed says: ' + str(st.description) }));
+    if (str(f.source) === 'psn' && !str(st.country)) wrap.appendChild(h('div', { class: 'rs-ev-when', text: 'Your country is not in this region\u2019s file, or it is not known. Only the items for the whole region are shown.' }));
+    if (str(st.timesAre)) wrap.appendChild(h('div', { class: 'rs-ev-when', text: str(st.timesAre) }));
     var items = arr(st.incidents).concat(arr(st.maintenances)).slice(0, 5);
     items.forEach(function (e) {
       e = obj(e);
@@ -1599,12 +1602,17 @@
       return;
     }
     if (!sv.cloudOn) card.appendChild(h('p', { class: 'card-sub tone-warn', text: CLOUD_OFF_TEXT }));
+    if (on.some(function (x) { return x.group === 'console'; })) {
+      card.appendChild(h('p', { class: 'card-sub', text: sv.consolePlaying
+        ? 'Playing on console is on: console services run every 5 minutes. Turn it off in Settings when you stop.'
+        : 'Console services run every 15 minutes. Turn on Playing on console in Settings while you play.' }));
+    }
     card.appendChild(h('div', { class: 'rs-games' }, on.map(svcBlock)));
   }
   function renderServicesSettings(card) {
     if (!card) return;
     var sv = S.services;
-    var sig = JSON.stringify(sv.list.map(function (x) { return [x.id, x.on, x.name, x.classText, x.targetLabel, x.statusNote]; })) + sv.cloudOn;
+    var sig = JSON.stringify(sv.list.map(function (x) { return [x.id, x.on, x.name, x.classText, x.targetLabel, x.statusNote]; })) + sv.cloudOn + sv.consolePlaying;
     if (card.__sig === sig) return;
     card.__sig = sig;
     clear(card);
@@ -1612,7 +1620,7 @@
     if (!sv.list.length) return;
     card.appendChild(h('div', { class: 'card-head' },
       h('div', {}, h('h2', { text: 'Other services' }),
-        h('p', { class: 'card-sub', text: 'Each service is off until you turn it on. Gecko Peeks then traces it every 15 minutes. It never runs at the same time as the Riot test.' }))));
+        h('p', { class: 'card-sub', text: 'Each service is off until you turn it on. Gecko Peeks then traces it every 15 minutes (consoles: every 5 minutes while Playing on console is on). It never runs at the same time as the Riot test.' }))));
     var list = h('div', { class: 'setting-list' });
     sv.list.forEach(function (x) {
       var label = 'svcLbl-' + x.id;
@@ -1628,8 +1636,23 @@
         h('div', {}, h('div', { class: 'setting-name', id: label, text: x.name }), h('div', { class: 'setting-desc', text: desc })),
         sw));
     });
+    if (sv.list.some(function (x) { return x.group === 'console'; })) list.appendChild(consoleSwitchRow(sv));
     card.appendChild(list);
     if (!sv.cloudOn) card.appendChild(h('p', { class: 'card-sub tone-warn', text: CLOUD_OFF_TEXT }));
+  }
+  // The user's own switch: the app cannot see a console. It only makes console services run every 5 minutes.
+  function consoleSwitchRow(sv) {
+    var sw = h('button', { type: 'button', class: 'switch', role: 'switch', 'aria-checked': sv.consolePlaying ? 'true' : 'false', 'aria-labelledby': 'svcLbl-console' },
+      h('span', { class: 'knob' }));
+    sw.addEventListener('click', function () {
+      var next = sw.getAttribute('aria-checked') !== 'true';
+      sw.setAttribute('aria-checked', next ? 'true' : 'false');
+      send({ cmd: 'setConsolePlaying', value: next });
+    });
+    return h('div', { class: 'setting' },
+      h('div', {}, h('div', { class: 'setting-name', id: 'svcLbl-console', text: 'Playing on console' }),
+        h('div', { class: 'setting-desc', text: 'Turn this on while you play on a console. The console services that are on then run every 5 minutes. Gecko Peeks cannot see the console itself, so turn it off when you stop. It also turns off when Gecko Peeks restarts.' })),
+      sw);
   }
 
   // ---------- Route page ----------
@@ -2481,6 +2504,18 @@
           { n: 2, ip: '184.105.64.9', host: 'core2.chi1.he.net', rttMs: 17, responded: true, reachedTarget: false, network: 'HE', asn: 6939 },
           { n: 3, ip: '104.16.0.10', host: '', rttMs: 18, responded: true, reachedTarget: true, network: 'Cloudflare', asn: 13335 }] }
     });
+    st.services.list.push({
+      id: 'xbox', name: 'Xbox network', group: 'console', on: variant === 'console', classId: 'shared-path', classText: 'Shared path only',
+      ownerName: 'Microsoft', ownerAsns: [8075], targetKind: 'hostname',
+      targetLabel: "Shared path to Xbox sign-in in Microsoft's network (ICMP). Probably the same edge your console uses",
+      caveat: "Shared path from your home to the Xbox edge. This is not your console's ping, NAT type or Wi-Fi. The console can use other DNS or other servers.",
+      statusNote: "Xbox's own status page (the United States feed).", feedId: 'xbox', feedAgeSec: 60, lastAgeSec: 120,
+      feed: { id: 'xbox', name: 'Xbox network (United States feed)', source: 'xnotify', status: { indicator: 'none', description: 'No problems listed', incidents: [], maintenances: [], components: [] } },
+      result: { ageSec: 120, outcome: 'measured', reason: '', targetIp: '40.90.0.10', targetName: 'user.auth.xboxlive.com', targetAsn: 8075, ownerMatch: true,
+        popHow: '', popCode: '', targetAvgMs: 25, targetLossPct: 0, lastHopAvgMs: 24, lastHopLossPct: 0, lastHopIp: '184.105.64.9',
+        upstream: 'HE', handoffNetwork: 'Microsoft', handoffCity: '', hops: [] }
+    });
+    st.services.consolePlaying = variant === 'console';
     if (variant === 'svcoff') { st.services.list[0].on = false; st.services.list[0].result = null; st.services.list[0].lastAgeSec = null; }
     if (variant === 'svcout') { var rr = st.services.list[0].result; rr.ownerMatch = false; rr.targetAsn = 64500; rr.targetAvgMs = null; rr.targetLossPct = 100; }
     if (variant === 'svcnone') { st.services.list[0].result = { ageSec: 30, outcome: 'noTarget', reason: "Valve's relay list is not available yet.", hops: [] }; }
@@ -2626,6 +2661,10 @@
             else { toast('Unknown region.', 'bad'); push(); break; }
             st.region.lastTestTarget = '192.207.0.5';
             if (st.cloud.riotStatus) setStatus();
+            push();
+            break;
+          case 'setConsolePlaying':
+            st.services.consolePlaying = !!m.value;
             push();
             break;
           case 'setService':

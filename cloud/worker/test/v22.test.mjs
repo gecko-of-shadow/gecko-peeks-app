@@ -70,14 +70,17 @@ test("refdata: Valve provider and the valve-sdr service", () => {
 
 test("refdata: every status feed a service names is a Worker feed", () => {
   for (const s of RD.services) {
-    if (s.status) assert.ok(Object.hasOwn(FEEDS, s.status.feed), s.id);
+    if (!s.status) continue;
+    const ids = [s.status.feed, ...Object.values(s.status.feedByContinent || {})].filter(Boolean);
+    assert.ok(ids.length > 0, s.id);
+    for (const id of ids) assert.ok(Object.hasOwn(FEEDS, id), `${s.id}: ${id}`);
   }
 });
 
-test("health shows the 2.2.1 Worker", async () => {
-  assert.equal(VERSION, "2.2.1");
+test("health shows the 2.2.2 Worker", async () => {
+  assert.equal(VERSION, "2.2.2");
   const res = await handle(req("/v1/health"), {}, ctx());
-  assert.equal((await body(res)).version, "2.2.1");
+  assert.equal((await body(res)).version, "2.2.2");
 });
 
 // ---------- SDR mapper ----------

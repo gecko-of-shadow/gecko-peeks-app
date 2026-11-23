@@ -35,7 +35,7 @@ From v2.1.5, the app keeps every diagnostic record it makes on your PC and never
 
 ### Other services
 
-From v2.2.0, **Settings > Other services** has a switch for each service. All are off until you turn one on. A service that is on is traced every 15 minutes, by the same runner as the Riot test, so the tests never overlap. A League match does not make them run more often.
+From v2.2.0, **Settings > Other services** has a switch for each service. All are off until you turn one on. A service that is on is traced every 15 minutes (a console service every 5 minutes while **Playing on console** is on), by the same runner as the Riot test, so the tests never overlap. A League match does not make them run more often.
 
 Every card and every export names the **target class**, so a good result is never read as more than it is:
 
@@ -47,6 +47,14 @@ Every card and every export names the **target class**, so a good result is neve
 **Steam (CS2, Dota 2)**, owned network: the route to your nearest Valve relay, from Valve's public relay list (`GetSDRConfig`, through the Worker). The app pings one relay at each of the 3 relay sites nearest to your Cloudflare location (3 pings each) and traces the one with the lowest ping. It keeps that choice for a day, or until the list changes, the relay stops answering, or your Cloudflare location moves. It checks that the relay is in Valve's network (AS32590); when it is not, the card says so. In-game ping goes through Valve's relay network, so it can be higher or lower. Valve publishes no status feed.
 
 **Discord** (v2.2.1+), CDN edge: the route to `latency.discord.media`, looked up with your PC's own DNS before each test. It is the Cloudflare edge (AS13335) that Discord uses for most voice traffic, not your voice server. A good result shows that the path to that edge is good, not that Discord's voice servers are fine. The card also shows Discord's own status feed (state, open incidents, parts not operational, voice regions included), under Discord's name. It is Discord's report, not a measurement by this app.
+
+**Consoles: PlayStation Network, Xbox network, Nintendo network** (v2.2.2+), shared path only. A PC can measure only the part of the path that it shares with a console on the same home network: the router, your internet provider and the path to the platform's front door. It cannot measure the console's ping, its NAT type or its Wi-Fi. Each target is looked up with this PC's own DNS (most consoles ask the same router), so the card says "probably the same edge":
+
+- PlayStation: `ps5.np.playstation.net`, an Akamai edge. Status: PlayStation's own status file for the region that lists your country (Americas, Europe/Middle East/Africa/Oceania, or Japan/Asia), chosen from the country Cloudflare sees for you (else your continent), with the items for your country.
+- Xbox: `user.auth.xboxlive.com`, Xbox sign-in in Microsoft's network (AS8075). Status: Xbox's own status feed (the United States feed).
+- Nintendo: `ctest.cdn.nintendo.net`, an Akamai edge. The role of this name comes from the community, not from Nintendo. Status: Nintendo's own network status (the United States feed; times as Nintendo writes them, in Pacific Time).
+
+The app cannot see a console. Turn on **Playing on console** in Settings while you play: the console services that are on then run every 5 minutes. Turn it off when you stop; it also turns off when Gecko Peeks restarts. The other services keep their 15 minutes.
 
 A result older than one hour, a relay list older than two days, or a status answer older than 15 minutes shows as "not available". The app reads no game process for these services.
 
@@ -169,6 +177,7 @@ Gecko Peeks has no account, no analytics and no telemetry.
 | Worker `/v1/refdata`, once a day | Nothing else (an ETag). It returns the network and region list. |
 | Worker `/v1/sdr?app=730`, once a day, only while Steam is on | Nothing else. The Worker reads Valve's public relay list. The app picks the relay on your PC, so your location is not sent. |
 | Worker `/v1/service-status?id=discord`, every 5 min, only while Discord is on | Nothing else. The Worker reads Discord's public status page. |
+| Worker `/v1/service-status?id=psn-scea`, `psn-scee`, `psn-sceja`, `xbox` or `nintendo`, every 5 min, only for a console service that is on | The feed id. For PlayStation the app picks the region file from your Cloudflare continent, and the Worker keeps the items for the country Cloudflare sees for your request. |
 | Worker `/v1/asn`, after tests and when you open History | Public router addresses from your route and from older log rows, at most 15 per call. The Worker asks Cloudflare Radar about them. |
 | Google DNS (`dns.google`), then Cloudflare DNS (`cloudflare-dns.com`) | The reverse name of a public IPv4 router, when Windows DNS gives no name. The app tells Google not to pass on your subnet. |
 | Team Cymru, through Google DNS | A public IPv4 router address, as an ASN query. Only when the Worker gives no ASN. |

@@ -24,7 +24,9 @@ public sealed record ServiceOwner(string Name, IReadOnlyList<long> Asns);
 public sealed record ServiceTarget(string Kind, int? AppId, string? Host, bool IcmpExpected, string Label);
 
 /// <param name="Feed">The Worker feed id (/v1/service-status?id=...), or null.</param>
-public sealed record ServiceStatusRef(string? Feed, IReadOnlyDictionary<string, string> FeedByContinent);
+/// <param name="FeedByCountry">By the edge country first (PlayStation: the region file that lists it), then by continent.</param>
+public sealed record ServiceStatusRef(string? Feed, IReadOnlyDictionary<string, string> FeedByContinent,
+    IReadOnlyDictionary<string, string>? FeedByCountry = null);
 
 /// <summary>One service of the refdata "services" block.</summary>
 /// <param name="Processes">Empty unless <paramref name="ProcessesVerified"/> is true: unverified names are never used.</param>
@@ -87,6 +89,7 @@ public static class ServiceCatalog
         ServiceInfo.KindSdr,
         ServiceInfo.KindHostname,
         "status-feed",
+        "console-switch",
     };
 
     public const int MaxServices = 40;
@@ -206,9 +209,21 @@ public static class ServiceCatalog
                 }
             }
 
-            if (feed == null && byContinent.Count == 0)
+            var byCountry = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (st.TryGetProperty("feedByCountry", out var bk) && bk.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var p in bk.EnumerateObject())
+                {
+                    var v = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() ?? "" : "";
+                    if (p.Name.Length != 2 || !FeedPattern.IsMatch(v))
+                        return null;
+                    byCountry[p.Name.ToUpperInvariant()] = v;
+                }
+            }
+
+            if (feed == null && byContinent.Count == 0 && byCountry.Count == 0)
                 return null;
-            status = new ServiceStatusRef(feed, byContinent);
+            status = new ServiceStatusRef(feed, byContinent, byCountry);
         }
 
         var verified = s.TryGetProperty("processesVerified", out var pv) && pv.ValueKind == JsonValueKind.True;

@@ -60,7 +60,8 @@ public sealed class ServiceProbes
     private readonly Func<bool> _cloudOn;
     private readonly Func<(double Lat, double Lon)?> _location;
     private readonly Dictionary<string, ServiceResult> _last = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, DateTime> _nextDue = new(StringComparer.Ordinal);
+    // When each service last finished, and whether that run only waits for a short retry.
+    private readonly Dictionary<string, (DateTime At, bool Retry)> _done = new(StringComparer.Ordinal);
     private readonly Dictionary<int, SdrChoice> _choice = new();
     private readonly Dictionary<int, (double Lat, double Lon)> _choiceHere = new();
 
@@ -115,7 +116,7 @@ public sealed class ServiceProbes
     {
         var now = Now;
         lock (_lock)
-            return Enabled().Any(s => !_nextDue.TryGetValue(s.Id, out var due) || now >= due);
+            return Enabled().Any(s => DueAtLocked(s) is not { } due || now >= due);
     }
 
     /// <summary>When the next service test is due, for the window. Null when none is on.</summary>
@@ -123,18 +124,31 @@ public sealed class ServiceProbes
     {
         lock (_lock)
         {
-            var times = Enabled().Select(s => _nextDue.TryGetValue(s.Id, out var due) ? due : Now).ToList();
+            var times = Enabled().Select(s => DueAtLocked(s) ?? Now).ToList();
             return times.Count == 0 ? null : times.Min();
         }
     }
+
+    /// <summary>
+    /// Every 15 minutes. A console service runs every 5 minutes while "Playing on console" is on
+    /// (the user's own switch: the app cannot see the console).
+    /// </summary>
+    public TimeSpan IntervalFor(ServiceInfo service) =>
+        service.Group == "console" && _settings.ConsolePlaying ? ConsoleInterval : Interval;
+
+    public static readonly TimeSpan ConsoleInterval = TimeSpan.FromMinutes(5);
+
+    /// <summary>Null when the service never ran (due now). Caller holds the lock.</summary>
+    private DateTime? DueAtLocked(ServiceInfo service) =>
+        _done.TryGetValue(service.Id, out var d) ? d.At + (d.Retry ? RetryNoTarget : IntervalFor(service)) : null;
 
     private void OnSettingsChanged()
     {
         lock (_lock)
         {
             // A service that was just turned on runs at the next check.
-            foreach (var id in _nextDue.Keys.Where(id => !_settings.IsOn(id)).ToList())
-                _nextDue.Remove(id);
+            foreach (var id in _done.Keys.Where(id => !_settings.IsOn(id)).ToList())
+                _done.Remove(id);
         }
 
         _feeds.Poke();
@@ -153,7 +167,7 @@ public sealed class ServiceProbes
                 return;
             bool due;
             lock (_lock)
-                due = all || !_nextDue.TryGetValue(service.Id, out var at) || Now >= at;
+                due = all || DueAtLocked(service) is not { } at || Now >= at;
             if (!due)
                 continue;
 
@@ -181,7 +195,7 @@ public sealed class ServiceProbes
         lock (_lock)
         {
             _last[service.Id] = result;
-            _nextDue[service.Id] = result.AtUtc + (result.Outcome is "measured" or "noReply" or "stopped" ? Interval : RetryNoTarget);
+            _done[service.Id] = (result.AtUtc, result.Outcome is not ("measured" or "noReply" or "stopped"));
 
             // The same "no target" reason again and again is kept once, not every 2 minutes.
             if (result.Outcome == "noTarget")

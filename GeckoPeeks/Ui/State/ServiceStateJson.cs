@@ -54,6 +54,7 @@ public static class ServiceStateJson
         w.WriteString("caveat", s.Caveat);
         w.WriteString("statusNote", s.StatusNote);
 
+        w.WriteBoolean("hasFeed", s.Status != null);
         var feedId = feeds.FeedFor(s);
         if (feedId == null)
             w.WriteNull("feedId");
