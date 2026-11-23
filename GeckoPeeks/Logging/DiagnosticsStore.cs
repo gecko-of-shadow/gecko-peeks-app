@@ -155,6 +155,155 @@ public sealed class DiagnosticsStore
         }
     }
 
+    // ---------- Other services (v2.2) ----------
+
+    /// <summary>Each service has its own files: service-&lt;id&gt;-YYYY-MM.jsonl.</summary>
+    public static string ServicePrefix(string serviceId) => ServicePrefixStart + serviceId;
+
+    public const string ServicePrefixStart = "service-";
+
+    /// <summary>
+    /// One line per service test. It always names the target class and how the target was chosen,
+    /// so the record never reads as more than it measured. "targetIcmp" is the ping to the target.
+    /// </summary>
+    public void RecordService(GeckoPeeks.Routing.ServiceInfo service, ServiceResult result)
+    {
+        if (Folder == null)
+            return;
+        try
+        {
+            var o = Header(result.AtUtc);
+            o["service"] = service.Id;
+            o["serviceName"] = service.Name;
+            o["outcome"] = result.Outcome;
+            if (!string.IsNullOrWhiteSpace(result.Reason))
+                o["reason"] = result.Reason;
+            o["targetClass"] = GeckoPeeks.Routing.ServiceInfo.ClassId(service.Class);
+            o["targetClassText"] = service.ClassText;
+            o["targetKind"] = service.Target.Kind;
+            o["targetLabel"] = service.Target.Label;
+            o["caveat"] = Blank(service.Caveat);
+            o["statusNote"] = Blank(service.StatusNote);
+            var owner = new JsonArray();
+            foreach (var asn in service.Owner.Asns)
+                owner.Add(asn);
+            o["owner"] = new JsonObject { ["name"] = service.Owner.Name, ["asns"] = owner };
+            o["targetIp"] = Blank(result.TargetIp);
+            o["targetName"] = Blank(result.TargetName);
+            o["targetAsn"] = result.TargetAsn;
+            o["targetInOwnerNetwork"] = result.OwnerMatch;
+            if (result.Pop is { } pop)
+            {
+                var candidates = new JsonArray();
+                foreach (var c in pop.Candidates)
+                    candidates.Add(c);
+                o["relay"] = new JsonObject
+                {
+                    ["app"] = pop.App,
+                    ["listRevision"] = pop.Revision,
+                    ["pop"] = pop.PopCode,
+                    ["popDesc"] = pop.PopDesc,
+                    ["how"] = pop.How,
+                    ["candidates"] = candidates,
+                    ["chosenAt"] = Iso(pop.ChosenUtc),
+                };
+            }
+
+            if (result.Row is { } row)
+            {
+                o["upstream"] = new JsonObject
+                {
+                    ["name"] = Blank(row.Upstream),
+                    ["source"] = Blank(row.UpstreamSource),
+                    ["asn"] = row.UpstreamAsn,
+                };
+                o["handoff"] = new JsonObject
+                {
+                    ["network"] = Blank(row.HandoffNetwork),
+                    ["host"] = Blank(row.HandoffHost),
+                    ["ip"] = Blank(row.HandoffIP),
+                    ["city"] = Blank(row.HandoffCity),
+                    ["rttMs"] = Num(row.HandoffRttMs),
+                    ["source"] = Blank(row.HandoffSource),
+                };
+                o["lastHop"] = new JsonObject
+                {
+                    ["ip"] = Blank(row.LastHopIP),
+                    ["host"] = Blank(row.LastHopHost),
+                    ["minMs"] = Num(row.LastHopMin),
+                    ["avgMs"] = Num(row.LastHopAvg),
+                    ["maxMs"] = Num(row.LastHopMax),
+                    ["lossPct"] = Num(row.LastHopLossPct),
+                };
+                // Blank values mean the target gave no ICMP reply, not 0.
+                o["targetIcmp"] = new JsonObject
+                {
+                    ["avgMs"] = Num(row.RiotHopAvg),
+                    ["lossPct"] = Num(row.RiotHopLossPct),
+                };
+                o["fullPath"] = Blank(row.FullPath);
+                o["adapter"] = Blank(row.Adapter);
+                o["wifi"] = Blank(row.Wifi);
+                o["gateway"] = Blank(row.Gateway);
+                o["vpn"] = Blank(row.Vpn);
+                o["error"] = Blank(row.Error);
+                var names = result.HopNames.ToDictionary(n => n.Number, n => n.Network);
+                o["hops"] = HopsNode(row, names);
+            }
+
+            Append(ServicePrefix(service.Id), result.AtUtc, o);
+        }
+        catch (Exception ex)
+        {
+            LastProblem = ex.Message;
+        }
+    }
+
+    private static JsonArray HopsNode(RouteRow row, IReadOnlyDictionary<int, string>? hopNames)
+    {
+        var hops = new JsonArray();
+        foreach (var hop in row.Hops)
+        {
+            var h = new JsonObject
+            {
+                ["n"] = hop.Number,
+                ["ip"] = Blank(hop.Ip),
+                ["host"] = Blank(hop.Hostname),
+                ["rttMs"] = hop.RttMs,
+                ["responded"] = hop.Responded,
+                ["reachedTarget"] = hop.ReachedTarget,
+            };
+            if (!string.IsNullOrWhiteSpace(hop.Ip) && row.HopAsns.TryGetValue(hop.Ip, out var asn))
+                h["asn"] = asn;
+            if (hopNames != null && hopNames.TryGetValue(hop.Number, out var name) && !string.IsNullOrWhiteSpace(name))
+                h["network"] = name;
+            hops.Add(h);
+        }
+
+        return hops;
+    }
+
+    /// <summary>The service ids that have files in the store, sorted.</summary>
+    public IReadOnlyList<string> ServiceIds()
+    {
+        if (Folder == null || !Directory.Exists(Folder))
+            return Array.Empty<string>();
+        try
+        {
+            return Directory.GetFiles(Folder, ServicePrefixStart + "*.jsonl")
+                .Select(Path.GetFileNameWithoutExtension)
+                .Select(n => n!.Length > ServicePrefixStart.Length + 8 ? n[ServicePrefixStart.Length..^8] : "")
+                .Where(id => System.Text.RegularExpressions.Regex.IsMatch(id, "^[a-z][a-z0-9-]{1,30}$"))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToList();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
+    }
+
     // ---------- Cloud ----------
 
     /// <summary>
@@ -370,13 +519,13 @@ public sealed class DiagnosticsStore
         foreach (var file in files)
         {
             // tests-2026-11.jsonl: skip months wholly outside the window.
+            // Only prefix-YYYY-MM.jsonl: "service-valve" must not read "service-valve-sdr-2026-11.jsonl".
             var month = Path.GetFileNameWithoutExtension(file)[(prefix.Length + 1)..];
-            if (DateTime.TryParseExact(month, "yyyy-MM", CultureInfo.InvariantCulture,
+            if (month.Length != 7 || !DateTime.TryParseExact(month, "yyyy-MM", CultureInfo.InvariantCulture,
                     DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var start))
-            {
-                if (start > toUtc || (fromUtc is { } from && start.AddMonths(1) < from))
-                    continue;
-            }
+                continue;
+            if (start > toUtc || (fromUtc is { } from && start.AddMonths(1) < from))
+                continue;
 
             foreach (var line in SharedText.ReadLines(file))
             {

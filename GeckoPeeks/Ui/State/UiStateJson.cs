@@ -25,7 +25,8 @@ public static class UiStateJson
     /// How many tests the log holds. More than the rows sent means the oldest ones were left out
     /// (<see cref="UiMapping.MaxHistoryRows"/>), and the page must not call its view "all tests".
     /// </param>
-    public static string Build(UiState state, string? historyJson = null, bool includeHistory = true, int? historyTotal = null)
+    public static string Build(UiState state, string? historyJson = null, bool includeHistory = true, int? historyTotal = null,
+        string? servicesJson = null)
     {
         using var buffer = new MemoryStream();
         using (var w = new Utf8JsonWriter(buffer, Options))
@@ -67,6 +68,13 @@ public static class UiStateJson
                 w.WriteNull("bytes");
             w.WriteString("problem", diag.Problem ?? "");
             w.WriteEndObject();
+
+            // v2.2: the other services (see ServiceStateJson).
+            if (servicesJson != null)
+            {
+                w.WritePropertyName("services");
+                w.WriteRawValue(servicesJson, skipInputValidation: false);
+            }
 
             w.WriteStartObject("settings");
             w.WriteBoolean("startWithWindows", state.Settings.StartWithWindows);

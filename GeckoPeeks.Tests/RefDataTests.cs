@@ -15,7 +15,7 @@ public class RefDataBuiltInTests
         Assert.Equal(1, data.Schema);
         Assert.NotEqual("builtin-minimal", data.Version);
         Assert.Equal(15, data.Regions.Count);
-        Assert.Equal(10, data.Providers.Count);
+        Assert.Equal(11, data.Providers.Count); // 10 route providers and Valve (v2.2)
         Assert.NotEmpty(data.CityCodes);
         Assert.Equal("na1", data.DefaultRegion.Id);
     }

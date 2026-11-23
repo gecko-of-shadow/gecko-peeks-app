@@ -24,7 +24,7 @@ public sealed record ExportRequest(
     string RegionNow,
     string TargetNow);
 
-public sealed record ExportResult(int Tests, int CsvRows, int ActivityLines, int CloudLines, int LeagueLines);
+public sealed record ExportResult(int Tests, int CsvRows, int ActivityLines, int CloudLines, int LeagueLines, int ServiceLines = 0);
 
 /// <summary>
 /// Builds a diagnostics zip on this PC: summary.txt (plain facts a support person can read in a
@@ -73,10 +73,15 @@ public static class DiagnosticsExport
             var testsFile = Copy(scratch, "tests", request.Store.ReadLines(DiagnosticsStore.TestsPrefix, request.FromUtc, request.ToUtc));
             var cloudFile = Copy(scratch, "cloud", cloudLines);
             var leagueFile = Copy(scratch, "league", request.Store.ReadLines(DiagnosticsStore.LeaguePrefix, request.FromUtc, request.ToUtc));
+            // Each other service (v2.2) has its own file, in the zip too.
+            var serviceFiles = request.Store.ServiceIds()
+                .Select(id => (Id: id, File: Copy(scratch, "service-" + id, request.Store.ReadLines(DiagnosticsStore.ServicePrefix(id), request.FromUtc, request.ToUtc))))
+                .ToList();
 
             var counts = new Counts();
             var summary = Summary(request, csv, SharedText.ReadLines(testsFile), SharedText.ReadLines(cloudFile),
-                SharedText.ReadLines(leagueFile), activity.Count, counts);
+                SharedText.ReadLines(leagueFile), activity.Count, counts,
+                serviceFiles.Select(f => (f.Id, SharedText.ReadLines(f.File))).ToList());
 
             using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
             using (var zip = new ZipArchive(stream, ZipArchiveMode.Create))
@@ -92,10 +97,12 @@ public static class DiagnosticsExport
                 Add(zip, "activity.log", w => WriteLines(w, activity, "\r\n"));
                 Add(zip, "cloud.jsonl", w => WriteLines(w, SharedText.ReadLines(cloudFile), "\n"));
                 Add(zip, "league.jsonl", w => WriteLines(w, SharedText.ReadLines(leagueFile), "\n"));
+                foreach (var (id, file) in serviceFiles)
+                    Add(zip, "services/" + id + ".jsonl", w => WriteLines(w, SharedText.ReadLines(file), "\n"));
             }
 
             File.Move(temp, request.ZipPath, overwrite: true);
-            return new ExportResult(counts.Tests, csv.Count, activity.Count, counts.Cloud, counts.League);
+            return new ExportResult(counts.Tests, csv.Count, activity.Count, counts.Cloud, counts.League, counts.Services);
         }
         catch
         {
@@ -140,13 +147,16 @@ public static class DiagnosticsExport
         public int Tests { get; set; }
         public int Cloud { get; set; }
         public int League { get; set; }
+        public int Services { get; set; }
+        public Dictionary<string, int> ServiceLines { get; } = new(StringComparer.Ordinal);
     }
 
     // ---------- Summary ----------
 
     /// <param name="csv">Route log rows of the window, oldest first.</param>
     public static string Summary(ExportRequest request, IReadOnlyList<RouteRow> csv, IEnumerable<string> tests,
-        IEnumerable<string> cloud, IEnumerable<string> league, int activityLines, Counts? counts = null)
+        IEnumerable<string> cloud, IEnumerable<string> league, int activityLines, Counts? counts = null,
+        IReadOnlyList<(string Id, IEnumerable<string> Lines)>? services = null)
     {
         counts ??= new Counts();
         var s = new StringBuilder();
@@ -329,6 +339,22 @@ public static class DiagnosticsExport
         }
 
         s.AppendLine();
+
+        // Other services (v2.2).
+        s.AppendLine("Other services (from version 2.2.0 on)");
+        s.AppendLine("--------------------------------------");
+        var anyService = false;
+        foreach (var (id, lines) in services ?? Array.Empty<(string, IEnumerable<string>)>())
+        {
+            var n = ServiceSection(s, id, lines);
+            counts.ServiceLines[id] = n;
+            counts.Services += n;
+            anyService |= n > 0;
+        }
+
+        if (!anyService)
+            s.AppendLine("No other service was tested in this window. Other services are off until you turn one on in Settings.");
+        s.AppendLine();
         s.AppendLine("Not measured");
         s.AppendLine("------------");
         s.AppendLine("- The route past the last router that answered, including the game server's own time.");
@@ -342,11 +368,132 @@ public static class DiagnosticsExport
         s.AppendLine($"activity.log   {activityLines} lines of what the app did.");
         s.AppendLine($"cloud.jsonl    {counts.Cloud} Cloudflare and Riot status answers (only when they changed).");
         s.AppendLine($"league.jsonl   {counts.League} League ping samples.");
+        foreach (var (id, n) in counts.ServiceLines)
+            s.AppendLine($"services/{id}.jsonl  {n} tests of this service, with every hop, the target class and how the target was chosen.");
         s.AppendLine();
         s.AppendLine("Privacy: " + PrivacyText);
         s.AppendLine("Gecko Peeks made this zip on this PC and sent it nowhere.");
         return s.ToString();
     }
+
+    /// <summary>
+    /// One service: what its target is (the class in words), how many tests, the target's ping, the
+    /// last router before it, and whether the target was in the owner's network. Facts only. Returns
+    /// the number of records read.
+    /// </summary>
+    private static int ServiceSection(StringBuilder s, string id, IEnumerable<string> lines)
+    {
+        var n = 0;
+        string? name = null, classText = null, label = null, caveat = null, statusNote = null, ownerName = null;
+        var outcomes = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        var targets = new SortedSet<string>(StringComparer.Ordinal);
+        var reasons = new SortedSet<string>(StringComparer.Ordinal);
+        var pingAvgs = new List<double>();
+        var pingLosses = new List<double>();
+        var noReply = 0;
+        var lastHop = new List<double>();
+        int inOwner = 0, outOwner = 0, notChecked = 0;
+        var otherAsns = new SortedSet<long>();
+        foreach (var line in lines)
+        {
+            using var doc = TryParse(line);
+            if (doc == null)
+                continue;
+            n++;
+            var r = doc.RootElement;
+            name = Str(r, "serviceName") ?? name;
+            classText = Str(r, "targetClassText") ?? classText;
+            label = Str(r, "targetLabel") ?? label;
+            caveat = Str(r, "caveat") ?? caveat;
+            statusNote = Str(r, "statusNote") ?? statusNote;
+            if (r.TryGetProperty("owner", out var owner) && owner.ValueKind == JsonValueKind.Object)
+                ownerName = Str(owner, "name") ?? ownerName;
+            var outcome = Str(r, "outcome") ?? "?";
+            outcomes[outcome] = outcomes.TryGetValue(outcome, out var c) ? c + 1 : 1;
+            if (outcome == "noTarget" && Str(r, "reason") is { } why)
+                reasons.Add(why);
+            if (Str(r, "targetIp") is { } ip)
+            {
+                var desc = Str(r, "targetName");
+                targets.Add(desc == null ? ip : $"{desc} ({ip})");
+            }
+
+            if (outcome != "measured")
+                continue;
+            if (r.TryGetProperty("targetIcmp", out var t) && t.ValueKind == JsonValueKind.Object)
+            {
+                if (Dbl(t, "avgMs") is { } avg)
+                {
+                    pingAvgs.Add(avg);
+                    if (Dbl(t, "lossPct") is { } loss)
+                        pingLosses.Add(loss);
+                }
+                else if (Dbl(t, "lossPct") is { } loss && loss >= 100)
+                {
+                    noReply++;
+                }
+            }
+
+            if (r.TryGetProperty("lastHop", out var lh) && lh.ValueKind == JsonValueKind.Object && Dbl(lh, "avgMs") is { } la)
+                lastHop.Add(la);
+            var io = r.TryGetProperty("targetInOwnerNetwork", out var ioEl) ? ioEl.ValueKind : JsonValueKind.Null;
+            if (io == JsonValueKind.True)
+            {
+                inOwner++;
+            }
+            else if (io == JsonValueKind.False)
+            {
+                outOwner++;
+                if (r.TryGetProperty("targetAsn", out var ta) && ta.ValueKind == JsonValueKind.Number && ta.TryGetInt64(out var asn))
+                    otherAsns.Add(asn);
+            }
+            else
+            {
+                notChecked++;
+            }
+        }
+
+        if (n == 0)
+            return 0;
+        s.AppendLine($"{name ?? id} [{classText ?? "target class not known"}]");
+        if (label != null)
+            s.AppendLine($"  Target: {label}.");
+        if (targets.Count > 0)
+            s.AppendLine("  Addresses traced: " + string.Join(", ", targets.Take(10)) + (targets.Count > 10 ? $" and {targets.Count - 10} more" : ""));
+        s.AppendLine($"  {n} tests: " + string.Join(", ", outcomes.Select(o => $"{o.Value} {ServiceOutcomeText(o.Key)}")) + ".");
+        foreach (var why in reasons.Take(5))
+            s.AppendLine("  No target: " + why);
+        if (pingAvgs.Count > 0)
+            s.AppendLine($"  Ping to the target (ICMP): answered in {pingAvgs.Count} of {pingAvgs.Count + noReply} tests, average {Ms(pingAvgs.Average())}"
+                + (pingLosses.Count > 0 ? $", average loss {Pct(pingLosses.Average())}" : "") + ".");
+        if (noReply > 0)
+            s.AppendLine($"  Ping to the target (ICMP): no reply in {noReply} tests. No reply is not 0 ms, and it does not prove the service is down.");
+        if (lastHop.Count > 0)
+            s.AppendLine($"  Last router before the target: average {Ms(lastHop.Average())} over {lastHop.Count} tests.");
+        if (inOwner + outOwner + notChecked > 0)
+        {
+            var who = ownerName ?? "the owner";
+            s.AppendLine($"  Target network check: in the network of {who} in {inOwner} tests"
+                + (outOwner > 0 ? $", in another network in {outOwner} tests ({string.Join(", ", otherAsns.Select(a => "AS" + a.ToString(CultureInfo.InvariantCulture)))})" : "")
+                + (notChecked > 0 ? $", not checked in {notChecked} tests (no network number)" : "") + ".");
+        }
+
+        if (caveat != null)
+            s.AppendLine("  Note: " + caveat);
+        if (statusNote != null)
+            s.AppendLine("  Status feed: " + statusNote);
+        return n;
+    }
+
+    private static string ServiceOutcomeText(string outcome) => outcome switch
+    {
+        "measured" => "measured",
+        "noReply" => "with no router answering",
+        "noTarget" => "with no target to test",
+        "cancelled" => "cancelled",
+        "stopped" => "stopped by an error",
+        _ => outcome,
+    };
 
     /// <summary>"time: Upstream, City → Upstream, City" for each change between consecutive tests with known routes.</summary>
     public static List<string> RouteChanges(IReadOnlyList<RouteRow> rows)
@@ -440,7 +587,8 @@ public static class DiagnosticsExport
         "these files hold your router addresses (public and private), your internet provider's name, your route, "
         + "your Wi-Fi name, your gateway address, your network adapter and VPN, your region, the League match server, "
         + "the city, approximate coordinates and time zone Cloudflare sees for you, and folder paths that can "
-        + "include your Windows user name.";
+        + "include your Windows user name. When you turned on other services, they also hold the routes to "
+        + "those services and the relay or edge address nearest to you.";
 
     // ---------- Helpers ----------
 

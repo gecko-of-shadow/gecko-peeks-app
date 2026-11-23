@@ -152,7 +152,7 @@ test("refdata: maps, providers and city codes", () => {
   assert.equal(RD.countryToRegion.US, "na1");
   assert.ok(!("CN" in RD.countryToRegion));
   for (const k of Object.keys(RD.countryToRegion)) assert.match(k, /^[A-Z]{2}$/);
-  assert.deepEqual(RD.providers.map((p) => p.key), ["zayo", "cogent", "telus", "wolfpaw", "he", "lumen", "ntt", "gtt", "telia", "riotdirect"]);
+  assert.deepEqual(RD.providers.map((p) => p.key), ["zayo", "cogent", "telus", "wolfpaw", "he", "lumen", "ntt", "gtt", "telia", "riotdirect", "valve"]);
   const p = Object.fromEntries(RD.providers.map((x) => [x.key, x]));
   assert.equal(p.telia.tier, "backbone");
   assert.equal(p.riotdirect.tier, "destination");
@@ -180,10 +180,10 @@ test("refdata: maps, providers and city codes", () => {
 
 // ---------- health, edge, refdata route ----------
 
-test("health has version 2.1.0 and the refdata version; edge has continent", async () => {
-  assert.equal(VERSION, "2.1.0");
+test("health has the Worker version and the refdata version; edge has continent", async () => {
+  assert.equal(VERSION, "2.2.0");
   const h = await body(await handle(req("/v1/health"), {}, {}));
-  assert.equal(h.version, "2.1.0");
+  assert.equal(h.version, "2.2.0");
   assert.equal(h.refdata, RD.version);
   const e = await body(await handle(req("/v1/edge"), {}, {}));
   assert.equal(e.continent, "NA");

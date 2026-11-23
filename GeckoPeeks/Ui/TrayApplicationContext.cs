@@ -94,7 +94,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
         instance.Listen(() => _form.BeginInvoke(new Action(_form.ShowFromTray)));
         _scheduler.Start();
         if (!demo)
+        {
             _cloud.Start();
+            _core.Feeds.Start();
+        }
         _updates.Start();
         StartupRegistration.RepairIfStale();
         _startupItem.Checked = _startup.Checked;

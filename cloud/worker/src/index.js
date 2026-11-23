@@ -1,19 +1,27 @@
 import { handleLatest, handleDownload, handleUploadPart, handleFinalize, handlePromote, handleVersions, handleDeleteRelease } from "./update.js";
 import { LOL_STATUS_BASE, VALORANT_STATUS_BASE, fetchFeed, readCapped } from "./riot.js";
 import { iso } from "./time.js";
+import { FEEDS, SDR_URL, fetchSource, mapSdr, fetchFeedStatus } from "./services.js";
 import refdata from "../data/refdata.json" with { type: "json" };
 
 // Gecko Peeks API Worker (gecko-peeks-api).
-// It reads a fixed set of Cloudflare Radar endpoints and returns small JSON
-// documents for the Gecko Peeks desktop app. It is not a proxy: every Radar
-// path is fixed in this file and every input is validated first.
+// It reads a fixed set of Cloudflare Radar endpoints, Riot's status feeds and (v2.2) Valve's relay
+// list and other public status feeds, and returns small JSON documents for the Gecko Peeks desktop
+// app. It is not a proxy: every source path is fixed in code and every input is validated first.
 
-const VERSION = "2.1.0";
+const VERSION = "2.2.0";
 // Computed once per isolate. The ETag follows the refdata version string.
 const REFDATA_BODY = JSON.stringify(refdata);
 const REFDATA_ETAG = `"rd-${refdata.version}"`;
 const REFDATA_CACHE_CONTROL = "public, max-age=86400";
 const RIOT_STATUS_TTL = 60;
+// v2.2 services. The relay list changes rarely; status feeds change in minutes.
+const SDR_TTL = 21600;
+const SERVICE_STATUS_TTL = 120;
+// Valve app ids the relay route accepts: only the ones a refdata service names.
+const SDR_APPS = new Set((Array.isArray(refdata.services) ? refdata.services : [])
+  .filter((s) => s && s.target && s.target.kind === "sdr-nearest-pop" && Number.isSafeInteger(s.target.appId))
+  .map((s) => s.target.appId));
 const REL_TTL = 86400;
 // A failed rel lookup (too large, Radar error) is remembered this long.
 const REL_FAIL_TTL = 3600;
@@ -634,6 +642,65 @@ async function handleRiotStatus(request, env, ctx, url) {
   return res;
 }
 
+// A cached answer for key, or null. A cache failure is a miss.
+async function cachedResponse(cache, key) {
+  if (!cache) return null;
+  try {
+    const hit = await cache.match(key);
+    if (!hit) return null;
+    const res = new Response(hit.body, hit);
+    res.headers.set("X-Gecko-Cache", "HIT");
+    return res;
+  } catch {
+    return null;
+  }
+}
+
+// GET /v1/sdr?app=<appid>: Valve's relay list (GetSDRConfig), cut down to POPs with relays.
+// At most 3 subrequests: match, fetch, put. A broken or unknown answer is 502 and not cached.
+async function handleSdr(request, env, ctx, url) {
+  for (const k of url.searchParams.keys()) {
+    if (k !== "app") return badRequest(`unknown parameter: ${k}`);
+  }
+  const raw = url.searchParams.get("app") || "";
+  const app = /^[0-9]{1,7}$/.test(raw) ? Number(raw) : null;
+  if (app === null || !SDR_APPS.has(app)) return badRequest("unknown app");
+  if (await rateLimited(request, env)) return tooMany();
+  const cache = getCache();
+  const key = cacheKey(request, `/__cache/v1/sdr/${app}`);
+  const hit = await cachedResponse(cache, key);
+  if (hit) return hit;
+  const mapped = mapSdr(await fetchSource(SDR_URL(app)), app);
+  if (!mapped) return json({ error: "source_invalid", detail: "Valve's relay list was not available or not in the known shape" }, 502, "no-store", { "X-Gecko-Cache": "BYPASS" });
+  const res = json({ ...mapped, fetchedAt: new Date().toISOString() }, 200, `public, max-age=${SDR_TTL}`, { "X-Gecko-Cache": "MISS" });
+  if (cache) ctx?.waitUntil?.(cache.put(key, res.clone()));
+  return res;
+}
+
+// GET /v1/service-status?id=<feed>: one public status feed, mapped. PlayStation also keeps the
+// items of the caller's own country (request.cf.country), so its cache key has the country.
+async function handleServiceStatus(request, env, ctx, url) {
+  for (const k of url.searchParams.keys()) {
+    if (k !== "id") return badRequest(`unknown parameter: ${k}`);
+  }
+  const id = url.searchParams.get("id") || "";
+  if (!Object.hasOwn(FEEDS, id)) return badRequest("unknown id");
+  if (await rateLimited(request, env)) return tooMany();
+  const feed = FEEDS[id];
+  let country = feed.kind === "psn" ? parseCountry(String(request.cf?.country ?? "")) : null;
+  if (country === "XX" || country === "T1") country = null;
+  const cache = getCache();
+  const key = cacheKey(request, `/__cache/v1/service-status/${id}/${country ?? ""}`);
+  const hit = await cachedResponse(cache, key);
+  if (hit) return hit;
+  const status = await fetchFeedStatus(id, country);
+  const body = { id, name: feed.name, source: feed.kind, pageUrl: feed.page, fetchedAt: new Date().toISOString(), status };
+  if (status === null) return json(body, 200, "no-store", { "X-Gecko-Cache": "BYPASS" });
+  const res = json(body, 200, `public, max-age=${SERVICE_STATUS_TTL}`, { "X-Gecko-Cache": "MISS" });
+  if (cache) ctx?.waitUntil?.(cache.put(key, res.clone()));
+  return res;
+}
+
 async function handlePulse(request, env, ctx, url) {
   for (const k of url.searchParams.keys()) {
     if (k !== "isp" && k !== "country") return badRequest(`unknown parameter: ${k}`);
@@ -825,6 +892,8 @@ async function handle(request, env, ctx) {
     "/v1/asn": () => handleAsn(request, env, ctx, url),
     "/v1/refdata": () => handleRefdata(request, url),
     "/v1/riot-status": () => handleRiotStatus(request, env, ctx, url),
+    "/v1/sdr": () => handleSdr(request, env, ctx, url),
+    "/v1/service-status": () => handleServiceStatus(request, env, ctx, url),
   };
   const route = routes[url.pathname];
   if (!route) return json({ error: "not_found" }, 404);

@@ -137,6 +137,7 @@
     </div>
 
     <div class="card rs-card" id="rsOverview"></div>
+    <div class="card rs-card svc-card" id="svcOverview" hidden></div>
   </section>
 
   <!-- Route -->
@@ -287,11 +288,12 @@
           <button type="button" class="switch" role="switch" aria-checked="false" aria-labelledby="lblAuto" data-key="autoInstallUpdates"><span class="knob"></span></button>
         </div>
         <div class="setting">
-          <div><div class="setting-name" id="lblCloud">Cloudflare live data</div><div class="setting-desc">Shows Radar data about Riot, your ISP and your country. Also names public routers on the route: their addresses go to Google DNS, Cloudflare DNS and Team Cymru. Off: only this PC's DNS names routers.</div></div>
+          <div><div class="setting-name" id="lblCloud">Cloudflare live data</div><div class="setting-desc">Shows Radar data about Riot, your ISP and your country. Also names public routers on the route: their addresses go to Google DNS, Cloudflare DNS and Team Cymru. It also brings the target lists of other services you turn on. Off: only this PC's DNS names routers, and other services have no target.</div></div>
           <button type="button" class="switch" role="switch" aria-checked="false" aria-labelledby="lblCloud" data-key="cloudEnabled"><span class="knob"></span></button>
         </div>
       </div>
     </div>
+    <div class="card" id="svcSettings" hidden></div>
     <div class="card">
       <div class="card-head">
         <div><h2>Logging</h2><p class="card-sub" id="logStatus"></p></div>

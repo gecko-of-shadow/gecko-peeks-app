@@ -125,6 +125,9 @@ public sealed class ProbeScheduler : IDisposable
     private bool _hopsAreAddressesOnly;
     private bool _riotNoReplyNoted;
     private int _runRequested;
+    // v2.2: what the queued run does. A run for the other services alone leaves the Riot due time alone.
+    private bool _riotWanted;
+    private bool _allServices;
     private int _hopsRevision;
     private int _logRevision = 1;
     private string _phase = "Idle";
@@ -282,7 +285,7 @@ public sealed class ProbeScheduler : IDisposable
             return;
 
         Note("Run test now");
-        RequestRun();
+        RequestRun(allServices: true);
     }
 
     public void TogglePause()
@@ -461,11 +464,17 @@ public sealed class ProbeScheduler : IDisposable
             }
 
             bool due;
+            bool idle;
             lock (_gate)
-                due = !_paused && !_testRunning && _nextDueUtc is DateTime when && DateTime.UtcNow >= when;
+            {
+                idle = !_paused && !_testRunning && _runRequested == 0;
+                due = idle && _nextDueUtc is DateTime when && DateTime.UtcNow >= when;
+            }
 
             if (due)
                 RequestRun();
+            else if (idle && ServicesDue())
+                RequestServiceRun();
         }
     }
 
@@ -624,7 +633,41 @@ public sealed class ProbeScheduler : IDisposable
             Publish();
     }
 
-    private void RequestRun()
+    private bool ServicesDue()
+    {
+        try
+        {
+            return _core != null && AppIsolation.AllowsProbes(_profile) && _core.Services.AnyDue();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Production only: a run for the other services that are due. The Riot test does not run.</summary>
+    private void RequestServiceRun()
+    {
+        if (!AppIsolation.AllowsProbes(_profile))
+            return;
+        lock (_gate)
+        {
+            if (!_acceptRuns || _runRequested == 1)
+                return;
+            _runRequested = 1;
+        }
+
+        try
+        {
+            _wake.Release();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Shutting down.
+        }
+    }
+
+    private void RequestRun(bool allServices = false)
     {
         if (!ProbesAllowed)
             return;
@@ -637,6 +680,8 @@ public sealed class ProbeScheduler : IDisposable
             if (!AppIsolation.AllowsProbes(_profile) && _devRunsRequested++ > 0)
                 return;
             _runRequested = 1;
+            _riotWanted = true;
+            _allServices |= allServices;
         }
 
         try
@@ -668,12 +713,21 @@ public sealed class ProbeScheduler : IDisposable
             }
 
             var shouldRun = false;
+            var riot = false;
+            var allServices = false;
+            var phaseBefore = "Idle";
+            DateTime? riotDoneUtc = null;
             lock (_gate)
             {
                 if (_runRequested == 1)
                 {
                     _runRequested = 0;
                     shouldRun = true;
+                    phaseBefore = _phase;
+                    riot = _riotWanted;
+                    allServices = _allServices;
+                    _riotWanted = false;
+                    _allServices = false;
                     _testRunning = true;
                     _phase = "Starting test";
                 }
@@ -685,7 +739,24 @@ public sealed class ProbeScheduler : IDisposable
             Publish();
             try
             {
-                await RunOnceAsync(cancellationToken).ConfigureAwait(false);
+                if (riot)
+                {
+                    try
+                    {
+                        await RunOnceAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        // The Riot due time counts from the end of the Riot test, not of the services after it.
+                        riotDoneUtc = DateTime.UtcNow;
+                    }
+                }
+
+                // A services-only run puts back the phase it found (for example a last test problem).
+                string phaseAfter;
+                lock (_gate)
+                    phaseAfter = riot ? _phase : phaseBefore;
+                await RunServicesAsync(allServices, phaseAfter, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -701,20 +772,65 @@ public sealed class ProbeScheduler : IDisposable
                 lock (_gate)
                 {
                     _testRunning = false;
-                    // Every finished run moves the due time, saved or not. Otherwise a run that
+                    // Every finished Riot run moves the due time, saved or not. Otherwise a run that
                     // cannot write (or gets no replies) leaves it in the past and tests run back to back.
-                    _lastTestUtc = DateTime.UtcNow;
-                    if (!_paused)
-                        RecomputeDue();
+                    // A run for the other services alone does not move it.
+                    if (riot)
+                    {
+                        _lastTestUtc = riotDoneUtc ?? DateTime.UtcNow;
+                        if (!_paused)
+                            RecomputeDue();
+                    }
+
                     again = _runRequested == 1 && _acceptRuns;
                     if (string.IsNullOrWhiteSpace(_lastError))
                         _phase = _paused ? "Paused" : "Idle";
                 }
 
                 Publish();
+                // A run asked for during this one is already queued with what it wants: wake for it.
                 if (again)
-                    RequestRun();
+                {
+                    try
+                    {
+                        _wake.Release();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // Shutting down.
+                    }
+                }
             }
+        }
+    }
+
+    /// <summary>
+    /// The other services that are on and due (all of them after Run test now). Their progress only
+    /// sets the phase text; their hops never reach the Riot route view. <paramref name="restorePhase"/>
+    /// comes back after. Production runs them on their own schedule; a Dev build only in its one
+    /// opt-in probe run (GECKO_PEEKS_DEV_PROBE=1), which then tests Riot and the services that are on.
+    /// </summary>
+    private async Task RunServicesAsync(bool all, string restorePhase, CancellationToken cancellationToken)
+    {
+        if (_core == null || !ProbesAllowed || cancellationToken.IsCancellationRequested)
+            return;
+        try
+        {
+            await _core.Services.RunDueAsync(all, text =>
+            {
+                lock (_gate)
+                    _phase = text;
+                Publish();
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            // A service test never stops the Riot tests.
+        }
+        finally
+        {
+            lock (_gate)
+                _phase = restorePhase;
         }
     }
 

@@ -204,6 +204,7 @@
       diagnostics: (function (d) {
         return { folder: str(d.folder), bytes: isNum(d.bytes) && d.bytes >= 0 ? d.bytes : null, problem: str(d.problem) };
       })(obj(raw.diagnostics)),
+      services: normServices(raw.services),
       settings: {
         startWithWindows: bool(st.startWithWindows), autoInstallUpdates: bool(st.autoInstallUpdates), cloudEnabled: bool(st.cloudEnabled),
         region: str(st.region) === 'auto' ? 'auto' : (regionId(st.region) || 'auto')
@@ -1318,6 +1319,7 @@
     renderLatencyChart();
     renderPulse();
     renderRiotStatus($('#rsOverview'));
+    renderServicesOverview($('#svcOverview'));
   }
 
   // ---------- Riot service status (Overview and Internet) ----------
@@ -1413,6 +1415,168 @@
         riotGame('League of Legends', rs.lol), riotGame('VALORANT', rs.valorant)));
     }
     card.appendChild(h('p', { class: 'card-foot', text: 'Source: Riot Games public status feed' }));
+  }
+
+  // ---------- Other services (v2.2): Overview card and Settings card ----------
+  // Every card names its target class. A result or feed past its age limit never comes from the
+  // host, so a missing result reads "not available", never an old number.
+  function normServices(raw) {
+    raw = obj(raw);
+    return {
+      cloudOn: bool(raw.cloudOn), consolePlaying: bool(raw.consolePlaying),
+      list: arr(raw.list).map(function (x) {
+        x = obj(x);
+        var r = x.result && typeof x.result === 'object' ? obj(x.result) : null;
+        return {
+          id: str(x.id), name: str(x.name), group: str(x.group), on: bool(x.on),
+          classId: str(x.classId), classText: str(x.classText) || 'Target class not known',
+          ownerName: str(x.ownerName), ownerAsns: arr(x.ownerAsns).filter(isNum),
+          targetLabel: str(x.targetLabel), caveat: str(x.caveat), statusNote: str(x.statusNote),
+          feedId: x.feedId ? str(x.feedId) : '', feed: x.feed && typeof x.feed === 'object' ? x.feed : null,
+          feedAgeSec: numOrNull(x.feedAgeSec), lastAgeSec: numOrNull(x.lastAgeSec),
+          result: r ? {
+            ageSec: numOrNull(r.ageSec), outcome: str(r.outcome), reason: str(r.reason),
+            targetIp: str(r.targetIp), targetName: str(r.targetName), targetAsn: numOrNull(r.targetAsn),
+            ownerMatch: r.ownerMatch === true ? true : r.ownerMatch === false ? false : null,
+            popHow: str(r.popHow), targetAvgMs: numOrNull(r.targetAvgMs), targetLossPct: numOrNull(r.targetLossPct),
+            lastHopAvgMs: numOrNull(r.lastHopAvgMs), lastHopLossPct: numOrNull(r.lastHopLossPct), lastHopIp: str(r.lastHopIp),
+            upstream: str(r.upstream), handoffNetwork: str(r.handoffNetwork), handoffCity: str(r.handoffCity),
+            hops: arr(r.hops).map(function (hp) {
+              hp = obj(hp);
+              return { n: isNum(hp.n) ? hp.n : 0, ip: str(hp.ip), host: str(hp.host), rttMs: numOrNull(hp.rttMs),
+                responded: bool(hp.responded), reachedTarget: bool(hp.reachedTarget), network: str(hp.network), asn: numOrNull(hp.asn) };
+            })
+          } : null
+        };
+      }).filter(function (x) { return /^[a-z][a-z0-9-]{1,30}$/.test(x.id) && x.name; })
+    };
+  }
+  var svcOpen = {};
+  function svcAge(sec) { return isNum(sec) ? sec + (Date.now() - receivedAt) / 1000 : null; }
+  function svcPingText(avg, loss) {
+    if (isNum(avg)) return ms(avg) + (isNum(loss) ? ' · ' + pct(loss) + ' loss' : '');
+    if (isNum(loss) && loss >= 100) return 'No reply (100% loss). This is not 0 ms.';
+    return 'Not measured';
+  }
+  function svcOwnerText(sv, r) {
+    var asn = isNum(r.targetAsn) ? 'AS' + r.targetAsn : '';
+    if (r.ownerMatch === true) return { text: sv.ownerName + ' network (' + asn + ')', tone: '' };
+    if (r.ownerMatch === false) return { text: asn + '. This is not ' + sv.ownerName + '’s network, so this result does not show the route into ' + sv.ownerName + '.', tone: 'warn' };
+    return { text: 'Not checked (no network number for this address)', tone: '' };
+  }
+  function svcFact(dl, k, v, tone) {
+    dl.appendChild(h('dt', { text: k }));
+    dl.appendChild(h('dd', { class: tone ? toneClass(tone) : '', text: v }));
+  }
+  function svcHops(sv, r) {
+    var rows = r.hops.map(function (x) {
+      return h('tr', {},
+        h('td', { class: 'tnum', text: String(x.n) }),
+        h('td', { class: 'mono', text: x.responded ? x.ip : '*' }),
+        h('td', { text: x.host || '' }),
+        h('td', { text: x.network ? x.network + (isNum(x.asn) ? ' (AS' + x.asn + ')' : '') : (isNum(x.asn) ? 'AS' + x.asn : '') }),
+        h('td', { class: 'tnum', text: x.responded && isNum(x.rttMs) ? ms(x.rttMs) : '—' }));
+    });
+    return h('details', { class: 'svc-hops', 'data-id': sv.id, open: svcOpen[sv.id] === true },
+      h('summary', { text: 'Route hops (' + r.hops.length + ')' }),
+      h('div', { class: 'table-wrap' }, h('table', { class: 'table' },
+        h('thead', {}, h('tr', {}, h('th', { text: '#' }), h('th', { text: 'Address' }), h('th', { text: 'Name' }), h('th', { text: 'Network' }), h('th', { text: 'Time' }))),
+        h('tbody', {}, rows))));
+  }
+  function svcBlock(sv) {
+    var box = h('div', { class: 'rs-game svc' });
+    var dot = h('i', { class: 'gdot' });
+    var r = sv.result;
+    // The host leaves out results older than one hour; the page also drops one that grew old since.
+    if (r && isNum(r.ageSec) && svcAge(r.ageSec) > 3600) r = null;
+    // The class is what the target should be. A target found outside the owner's network says so.
+    var outside = r && r.outcome === 'measured' && r.ownerMatch === false;
+    box.appendChild(h('div', { class: 'rs-game-head' },
+      h('div', { class: 'rs-game-name' }, dot, sv.name),
+      h('span', { class: 'badge' + (outside ? ' warn' : ''), text: (outside ? 'Not in ' + sv.ownerName + '’s network' : sv.classText).toUpperCase() })));
+    box.appendChild(h('div', { class: 'svc-target', text: sv.targetLabel }));
+    if (!r) {
+      box.appendChild(h('div', { class: 'rs-none', text: sv.lastAgeSec !== null || sv.result
+        ? 'Not available. The last test is older than one hour.'
+        : 'Not measured yet.' }));
+    } else if (r.outcome === 'measured') {
+      var answered = isNum(r.targetAvgMs);
+      dot.className = 'gdot ' + (answered ? 'good' : 'warn');
+      var dl = h('dl', { class: 'facts svc-facts' });
+      svcFact(dl, 'Target', (r.targetName ? r.targetName + ' · ' : '') + r.targetIp);
+      var own = svcOwnerText(sv, r);
+      svcFact(dl, 'Target network', own.text, own.tone);
+      svcFact(dl, 'Ping to the target (ICMP)', svcPingText(r.targetAvgMs, r.targetLossPct), answered ? '' : 'warn');
+      if (r.lastHopIp) svcFact(dl, 'Last router before it', svcPingText(r.lastHopAvgMs, r.lastHopLossPct));
+      var route = [r.upstream && r.upstream !== 'Unknown' ? r.upstream : '', r.handoffNetwork, r.handoffCity].filter(Boolean);
+      if (route.length) svcFact(dl, 'Route', route.join(' → '));
+      if (r.popHow) svcFact(dl, 'How the target was chosen', r.popHow);
+      var age = svcAge(r.ageSec);
+      if (age !== null) svcFact(dl, 'Tested', agoText(age));
+      box.appendChild(dl);
+      if (r.reason) box.appendChild(h('div', { class: 'rs-ev-text tone-warn', text: r.reason }));
+      if (r.hops.length) box.appendChild(svcHops(sv, r));
+    } else if (r.outcome === 'noReply') {
+      dot.className = 'gdot warn';
+      box.appendChild(h('div', { class: 'rs-none', text: 'No router answered on the way to ' + (r.targetIp || 'the target') + '.' }));
+    } else {
+      box.appendChild(h('div', { class: 'rs-none', text: 'Not available. ' + (r.reason || '') }));
+    }
+    if (sv.caveat) box.appendChild(h('div', { class: 'rs-ev-text', text: sv.caveat }));
+    if (!sv.feedId && sv.statusNote) box.appendChild(h('div', { class: 'rs-ev-when', text: 'Status: ' + sv.statusNote }));
+    return box;
+  }
+  function renderServicesOverview(card) {
+    if (!card) return;
+    var sv = S.services, on = sv.list.filter(function (x) { return x.on; });
+    var sig = JSON.stringify(sv) + '|' + Math.floor(Date.now() / 60000);
+    if (card.__sig === sig) return;
+    card.__sig = sig;
+    // An open "Route hops" fold stays open when the card is drawn again.
+    $all('details.svc-hops', card).forEach(function (d) { svcOpen[d.getAttribute('data-id')] = d.open; });
+    clear(card);
+    card.hidden = !sv.list.length;
+    if (!sv.list.length) return;
+    card.appendChild(h('div', { class: 'card-head' },
+      h('div', {}, h('h2', { text: 'Other services' }),
+        h('p', { class: 'card-sub', text: 'Routes to other games and apps that you turned on. Each one says what its target is.' }))));
+    if (!on.length) {
+      card.appendChild(stateMsg('No other service is on', 'Turn on a service in Settings. Gecko Peeks then traces it every 15 minutes.',
+        h('a', { class: 'btn', href: '#/settings' }, h('span', { text: 'Open Settings' }))));
+      return;
+    }
+    if (!sv.cloudOn) card.appendChild(h('p', { class: 'card-sub tone-warn', text: 'Cloudflare live data is off. The targets of these services come through the Gecko Peeks service, so they are not available.' }));
+    card.appendChild(h('div', { class: 'rs-games' }, on.map(svcBlock)));
+  }
+  function renderServicesSettings(card) {
+    if (!card) return;
+    var sv = S.services;
+    var sig = JSON.stringify(sv.list.map(function (x) { return [x.id, x.on, x.name, x.classText, x.targetLabel, x.statusNote]; })) + sv.cloudOn;
+    if (card.__sig === sig) return;
+    card.__sig = sig;
+    clear(card);
+    card.hidden = !sv.list.length;
+    if (!sv.list.length) return;
+    card.appendChild(h('div', { class: 'card-head' },
+      h('div', {}, h('h2', { text: 'Other services' }),
+        h('p', { class: 'card-sub', text: 'Each service is off until you turn it on. Gecko Peeks then traces it every 15 minutes. It never runs at the same time as the Riot test.' }))));
+    var list = h('div', { class: 'setting-list' });
+    sv.list.forEach(function (x) {
+      var label = 'svcLbl-' + x.id;
+      var sw = h('button', { type: 'button', class: 'switch', role: 'switch', 'aria-checked': x.on ? 'true' : 'false', 'aria-labelledby': label },
+        h('span', { class: 'knob' }));
+      sw.addEventListener('click', function () {
+        var next = sw.getAttribute('aria-checked') !== 'true';
+        sw.setAttribute('aria-checked', next ? 'true' : 'false');
+        send({ cmd: 'setService', id: x.id, value: next });
+      });
+      var desc = x.classText + '. ' + x.targetLabel + '.' + (x.statusNote ? ' ' + x.statusNote : '');
+      list.appendChild(h('div', { class: 'setting' },
+        h('div', {}, h('div', { class: 'setting-name', id: label, text: x.name }), h('div', { class: 'setting-desc', text: desc })),
+        sw));
+    });
+    card.appendChild(list);
+    if (!sv.cloudOn) card.appendChild(h('p', { class: 'card-sub tone-warn', text: 'These services need Cloudflare live data: their targets and status come through the Gecko Peeks service.' }));
   }
 
   // ---------- Route page ----------
@@ -1932,10 +2096,11 @@
   }
   function renderSettings() {
     renderRegion();
-    $all('.switch').forEach(function (sw) {
+    $all('.switch[data-key]').forEach(function (sw) {
       var key = sw.getAttribute('data-key');
       sw.setAttribute('aria-checked', S.settings[key] ? 'true' : 'false');
     });
+    renderServicesSettings($('#svcSettings'));
     var p = S.probe;
     var pause = $('#btnPause');
     setText($('span', pause), p.paused ? 'Resume logging' : 'Pause logging');
@@ -2005,6 +2170,7 @@
       var age = cloudAge();
       if (age !== null && S.cloud.enabled) setText($('#pulseAge'), 'Cloudflare Radar · updated ' + agoText(age));
       renderRiotStatus($('#rsOverview'));
+      renderServicesOverview($('#svcOverview'));
     } else if (page === 'internet') {
       if (!$('#netBody').hidden) renderRiotStatus($('#rsInternet'));
       var a = cloudAge();
@@ -2043,7 +2209,7 @@
       var id = e.target.value === 'auto' ? 'auto' : regionId(e.target.value);
       if (id) send({ cmd: 'setRegion', id: id });
     });
-    $all('.switch').forEach(function (sw) {
+    $all('.switch[data-key]').forEach(function (sw) {
       sw.addEventListener('click', function () {
         var key = sw.getAttribute('data-key'), next = sw.getAttribute('aria-checked') !== 'true';
         sw.setAttribute('aria-checked', next ? 'true' : 'false');
@@ -2227,6 +2393,26 @@
       settings: { startWithWindows: true, autoInstallUpdates: true, cloudEnabled: true, region: 'auto' },
       diagnostics: { folder: 'C:\\Users\\Player\\AppData\\Local\\GeckoPeeks\\Diagnostics', bytes: 1843200, problem: '' }
     };
+    // Demo services (neutral): a Valve relay from Valve's public list, HE as the upstream.
+    var demoHops = [
+      { n: 1, ip: '192.168.1.1', host: '', rttMs: 1, responded: true, reachedTarget: false, network: '', asn: null },
+      { n: 2, ip: '*', host: '', rttMs: null, responded: false, reachedTarget: false, network: '', asn: null },
+      { n: 3, ip: '184.105.64.1', host: 'core1.chi1.he.net', rttMs: 31, responded: true, reachedTarget: false, network: 'HE', asn: 6939 },
+      { n: 4, ip: '162.254.199.247', host: '162-254-199-247.valve.net', rttMs: 41, responded: true, reachedTarget: false, network: 'Valve', asn: 32590 },
+      { n: 5, ip: '162.254.199.170', host: '', rttMs: 42, responded: true, reachedTarget: true, network: 'Valve', asn: 32590 }
+    ];
+    st.services = { cloudOn: true, consolePlaying: false, list: [{
+      id: 'valve-sdr', name: 'Steam (CS2, Dota 2)', group: 'pc', on: true, classId: 'owned', classText: 'Owned network',
+      ownerName: 'Valve', ownerAsns: [32590], targetKind: 'sdr-nearest-pop', targetLabel: 'Route to your nearest Valve relay (ICMP)',
+      caveat: "In-game ping goes through Valve's relay network, so it can be higher or lower than this.",
+      statusNote: 'Valve publishes no status feed.', feedId: null, feed: null, lastAgeSec: 240,
+      result: { ageSec: 240, outcome: 'measured', reason: '', targetIp: '162.254.199.170', targetName: 'Atlanta (Georgia)', targetAsn: 32590, ownerMatch: true,
+        popHow: 'Lowest ping of the 3 relays nearest to your Cloudflare location.', popCode: 'atl', targetAvgMs: 42, targetLossPct: 0,
+        lastHopAvgMs: 41, lastHopLossPct: 0, lastHopIp: '162.254.199.247', upstream: 'HE', handoffNetwork: 'Valve', handoffCity: '', hops: demoHops }
+    }] };
+    if (variant === 'svcoff') { st.services.list[0].on = false; st.services.list[0].result = null; st.services.list[0].lastAgeSec = null; }
+    if (variant === 'svcout') { var rr = st.services.list[0].result; rr.ownerMatch = false; rr.targetAsn = 64500; rr.targetAvgMs = null; rr.targetLossPct = 100; }
+    if (variant === 'svcnone') { st.services.list[0].result = { ageSec: 30, outcome: 'noTarget', reason: "Valve's relay list is not available yet.", hops: [] }; }
     st.region = mockRegion('na1', true, 'country');
     st.regions = REGIONS.map(function (r) { return { id: r[0], shortName: r[1], name: r[2], serverCity: r[8], cityConfirmed: r[9] }; });
     function setStatus() {
@@ -2369,6 +2555,10 @@
             else { toast('Unknown region.', 'bad'); push(); break; }
             st.region.lastTestTarget = '192.207.0.5';
             if (st.cloud.riotStatus) setStatus();
+            push();
+            break;
+          case 'setService':
+            st.services.list.forEach(function (x) { if (x.id === m.id) x.on = !!m.value; });
             push();
             break;
           case 'ready': push(); break;

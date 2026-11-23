@@ -56,7 +56,8 @@ public sealed class RefData
         IReadOnlyDictionary<string, string> countryToRegion,
         IReadOnlyDictionary<string, string> continentToRegion,
         IReadOnlyList<ProviderInfo> providers,
-        IReadOnlyList<CityCodeRow> cityCodes)
+        IReadOnlyList<CityCodeRow> cityCodes,
+        IReadOnlyList<ServiceInfo>? services = null)
     {
         Schema = schema;
         Version = version;
@@ -67,6 +68,7 @@ public sealed class RefData
         ContinentToRegion = continentToRegion;
         Providers = providers;
         CityCodes = cityCodes;
+        Services = services ?? Array.Empty<ServiceInfo>();
 
         _regionById = regions.ToDictionary(r => r.Id, StringComparer.OrdinalIgnoreCase);
         _providerByAsn = new Dictionary<long, ProviderInfo>();
@@ -101,6 +103,12 @@ public sealed class RefData
     public IReadOnlyDictionary<string, string> ContinentToRegion { get; }
     public IReadOnlyList<ProviderInfo> Providers { get; }
     public IReadOnlyList<CityCodeRow> CityCodes { get; }
+
+    /// <summary>Other services (v2.2) this app can show. Bad or newer entries are left out.</summary>
+    public IReadOnlyList<ServiceInfo> Services { get; }
+
+    public ServiceInfo? FindService(string? id) =>
+        id == null ? null : Services.FirstOrDefault(s => string.Equals(s.Id, id, StringComparison.Ordinal));
 
     /// <summary>The copy embedded in the running assembly. Never null. If the resource is
     /// missing or broken, a hard-coded minimal set (na1 only, the 10 providers, no city codes).</summary>
@@ -372,7 +380,8 @@ public sealed class RefData
                 }
             }
 
-            data = new RefData(1, version!, defaultRegion, regions, aliases, countries, continents, providers, cities);
+            data = new RefData(1, version!, defaultRegion, regions, aliases, countries, continents, providers, cities,
+                ServiceCatalog.Parse(root));
             return true;
         }
         catch (JsonException)

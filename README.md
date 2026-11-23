@@ -17,6 +17,7 @@ Every 15 minutes it runs a traceroute and a ping to the Riot target for your reg
 - **Shows live data (on by default).** **Cloudflare live data** shows Riot's service status for League of Legends and VALORANT, and Cloudflare Radar data about Riot, your ISP and your country. It also helps to name routers. See [Privacy](#privacy) for what it sends.
 - **Works for any Riot region.** 15 regions are listed (NA, EUW, EUNE, KR, JP, BR, LAN, LAS, OCE, TR, RU, ME, SEA, TW, VN). With Cloudflare live data on, the app picks your region from your country. You can also pick it in Settings. Otherwise it uses NA.
 - **Updates itself.** New versions download in the background and install when you are not playing. See [How auto-update works](#how-auto-update-works).
+- **Other services (v2.2+).** You can also trace other services. Each one is off until you turn it on. See [Other services](#other-services).
 
 ### About the Riot target
 
@@ -32,6 +33,21 @@ From v2.1.4, during a match the **League** card shows your real in-game ping. Th
 
 From v2.1.5, the app keeps every diagnostic record it makes on your PC and never deletes it: each test with every router, League's own ping during matches, and Cloudflare and Riot status data (see [Diagnostics](#diagnostics)). **Export diagnostics** makes one zip with a short `summary.txt` that you can send to your internet provider or Riot support.
 
+### Other services
+
+From v2.2.0, **Settings > Other services** has a switch for each service. All are off until you turn one on. A service that is on is traced every 15 minutes, by the same runner as the Riot test, so the tests never overlap. A League match does not make them run more often.
+
+Every card and every export names the **target class**, so a good result is never read as more than it is:
+
+- **Owned network**: the target is inside the service's own network.
+- **CDN edge**: the target is a CDN or cloud edge in front of the service.
+- **Shared path only**: only the path this PC shares with another device is measured.
+- **Status only**: no network target, only the vendor's status feed.
+
+**Steam (CS2, Dota 2)**, owned network: the route to your nearest Valve relay, from Valve's public relay list (`GetSDRConfig`, through the Worker). The app pings one relay at each of the 3 relay sites nearest to your Cloudflare location (3 pings each) and traces the one with the lowest ping. It keeps that choice for a day, or until the list changes, the relay stops answering, or your Cloudflare location moves. It checks that the relay is in Valve's network (AS32590); when it is not, the card says so. In-game ping goes through Valve's relay network, so it can be higher or lower. Valve publishes no status feed.
+
+A result older than one hour, or a relay list older than two days, shows as "not available". The app reads no game process for these services.
+
 ## Screenshots
 
 | Route | History | Internet |
@@ -42,7 +58,7 @@ From v2.1.5, the app keeps every diagnostic record it makes on your PC and never
 - **Route**: every hop with its address, host name, ASN, network and round trip. A changed hop is marked.
 - **History**: which upstream carried your tests and how each did, and your tests, newest first, with **Show 200 more**.
 - **Internet**: Riot service status, where Cloudflare sees you, your ISP's upstream networks, country latency, traffic and events from Cloudflare Radar.
-- **Settings**: region, Start with Windows, Install updates automatically, Cloudflare live data, the log, and the version.
+- **Settings**: region, Start with Windows, Install updates automatically, Cloudflare live data, other services, the log, and the version.
 
 ## Install
 
@@ -135,7 +151,7 @@ Gecko Peeks has no account, no analytics and no telemetry.
 
 **Always on:**
 
-- ICMP traceroute and ping to the Riot target and the routers on the way.
+- ICMP traceroute and ping to the Riot target and the routers on the way. For each other service that is on, the same to its target (for Steam, also up to 9 pings to choose the relay).
 - Reverse DNS for each hop through the DNS server that Windows uses. This is the only place where hop 1, your gateway and private addresses go.
 - The update check (every 3 hours) and the download, from the Worker (see above). They send the update channel and the app version. Nothing else.
 - The window uses Microsoft Edge WebView2. The WebView2 runtime can contact Microsoft by itself. The page itself makes no network calls.
@@ -149,6 +165,7 @@ Gecko Peeks has no account, no analytics and no telemetry.
 | Worker `/v1/pulse`, every 5 min | Nothing else. The Worker reads Cloudflare Radar for Riot, your network and your country. |
 | Worker `/v1/riot-status`, every 5 min | Your region id (for example `na1`). The Worker reads Riot's public status feeds. |
 | Worker `/v1/refdata`, once a day | Nothing else (an ETag). It returns the network and region list. |
+| Worker `/v1/sdr?app=730`, once a day, only while Steam is on | Nothing else. The Worker reads Valve's public relay list. The app picks the relay on your PC, so your location is not sent. |
 | Worker `/v1/asn`, after tests and when you open History | Public router addresses from your route and from older log rows, at most 15 per call. The Worker asks Cloudflare Radar about them. |
 | Google DNS (`dns.google`), then Cloudflare DNS (`cloudflare-dns.com`) | The reverse name of a public IPv4 router, when Windows DNS gives no name. The app tells Google not to pass on your subnet. |
 | Team Cymru, through Google DNS | A public IPv4 router address, as an ASN query. Only when the Worker gives no ASN. |
@@ -195,7 +212,8 @@ From v2.1.5 the app also keeps JSON lines (one record per line, times in UTC) in
 
 - `tests-YYYY-MM.jsonl`: every test, also cancelled and failed ones, with the outcome, each router (address, name, time, ASN, network name), the test target, the region, the League match server and League's own ping from the same moment.
 - `league-YYYY-MM.jsonl`: League's own ping, loss and jitter during a match, about every 10 seconds. Never an address, and never League's `netstats` file.
-- `cloud-YYYY-MM.jsonl`: Cloudflare and Riot status answers, only when they changed (needs Cloudflare live data on).
+- `cloud-YYYY-MM.jsonl`: Cloudflare and Riot status answers, only when they changed (needs Cloudflare live data on). From v2.2.0 also the relay list and status answers of the other services that are on.
+- `service-<id>-YYYY-MM.jsonl` (v2.2.0+): every test of one other service, with its target class, how the target was chosen, each router, and whether the target was in the owner's network. Export diagnostics puts them in `services/<id>.jsonl` and adds a section to `summary.txt`.
 
 Settings > Diagnostics shows the space they use. The app never deletes them. Delete the folder yourself if you want them gone.
 

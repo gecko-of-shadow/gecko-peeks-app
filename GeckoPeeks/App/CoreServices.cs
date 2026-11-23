@@ -17,7 +17,7 @@ public sealed class CoreServices : IDisposable
     private bool _disposed;
 
     private CoreServices(RefDataStore refData, AsnCache asn, RegionService region, CloudClient client,
-        CloudPoller cloud, DohClient doh, IHopResolver resolver, DiagnosticsStore diagnostics)
+        CloudPoller cloud, DohClient doh, IHopResolver resolver, DiagnosticsStore diagnostics, ServiceSettings serviceSettings)
     {
         Diagnostics = diagnostics;
         RefData = refData;
@@ -29,6 +29,58 @@ public sealed class CoreServices : IDisposable
         Resolver = resolver;
         RefData.Changed += Region.OnRefDataChanged;
         Cloud.Changed += SaveCloud;
+
+        ServiceSettings = serviceSettings;
+        Feeds = new ServiceFeeds(client, () => Cloud.Enabled, () => Services.Enabled(), () => EdgeText("continent"));
+        Feeds.Answered += (kind, json) => Diagnostics.RecordCloud(kind, json, DateTime.UtcNow);
+        Services = new ServiceProbes(() => RefData.Current, serviceSettings, Feeds, resolver, diagnostics,
+            () => Cloud.Enabled, EdgeLocation);
+    }
+
+    /// <summary>Which other services are on, and the console switch.</summary>
+    public ServiceSettings ServiceSettings { get; }
+
+    /// <summary>Valve's relay list and the service status feeds, through the Worker.</summary>
+    public ServiceFeeds Feeds { get; }
+
+    /// <summary>The other services' tests (v2.2).</summary>
+    public ServiceProbes Services { get; }
+
+    /// <summary>The Cloudflare edge's lat/lon for this connection (never sent anywhere), else null.</summary>
+    private (double Lat, double Lon)? EdgeLocation()
+    {
+        try
+        {
+            var json = Cloud.Snapshot().EdgeJson;
+            if (string.IsNullOrWhiteSpace(json))
+                return null;
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            return root.TryGetProperty("lat", out var lat) && lat.TryGetDouble(out var la) && Math.Abs(la) <= 90
+                && root.TryGetProperty("lon", out var lon) && lon.TryGetDouble(out var lo) && Math.Abs(lo) <= 180
+                ? (la, lo)
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private string? EdgeText(string name)
+    {
+        try
+        {
+            var json = Cloud.Snapshot().EdgeJson;
+            if (string.IsNullOrWhiteSpace(json))
+                return null;
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty(name, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>The app version as "major.minor.build".</summary>
@@ -58,7 +110,8 @@ public sealed class CoreServices : IDisposable
         var doh = new DohClient(dohHandler);
         var resolver = new HopResolver(asn, () => cloud.Enabled, client, doh);
         var diagnostics = new DiagnosticsStore(DiagnosticsStore.PathFor(profile, devRoot), AppVersion);
-        return new CoreServices(refData, asn, region, client, cloud, doh, resolver, diagnostics);
+        var serviceSettings = new ServiceSettings(ServiceSettings.PathFor(profile, devRoot));
+        return new CoreServices(refData, asn, region, client, cloud, doh, resolver, diagnostics, serviceSettings);
     }
 
     public RefDataStore RefData { get; }
@@ -121,6 +174,7 @@ public sealed class CoreServices : IDisposable
         _disposed = true;
         RefData.Changed -= Region.OnRefDataChanged;
         Cloud.Changed -= SaveCloud;
+        Feeds.Dispose();
         try
         {
             Asn.Flush();

@@ -18,6 +18,8 @@ public enum BridgeCommand
     SetSetting,
     SetRegion,
     ExportDiagnostics,
+    SetService,
+    SetConsolePlaying,
 }
 
 public enum BridgeSetting
@@ -30,7 +32,8 @@ public enum BridgeSetting
 /// <summary>One web-to-host message from Contract 2.</summary>
 /// <param name="RegionId">For setRegion: "auto" or a lowercase region id.</param>
 /// <param name="Range">For exportDiagnostics: a key of <see cref="GeckoPeeks.Logging.DiagnosticsExport.Ranges"/>.</param>
-public sealed record BridgeMessage(BridgeCommand Command, string? Url = null, BridgeSetting? Setting = null, bool Value = false, string? RegionId = null, string? Range = null)
+/// <param name="ServiceId">For setService: a service id (^[a-z][a-z0-9-]{1,30}$).</param>
+public sealed record BridgeMessage(BridgeCommand Command, string? Url = null, BridgeSetting? Setting = null, bool Value = false, string? RegionId = null, string? Range = null, string? ServiceId = null)
 {
     /// <summary>The longest region id setRegion accepts ("auto" or for example "euw1").</summary>
     public const int MaxRegionIdLength = 8;
@@ -76,6 +79,17 @@ public sealed record BridgeMessage(BridgeCommand Command, string? Url = null, Br
                     return ParseSetting(root);
                 case "setRegion":
                     return ParseRegion(root);
+                case "setService":
+                    return root.TryGetProperty("id", out var sid) && sid.ValueKind == JsonValueKind.String
+                        && sid.GetString() is { } serviceId
+                        && System.Text.RegularExpressions.Regex.IsMatch(serviceId, "^[a-z][a-z0-9-]{1,30}$")
+                        && root.TryGetProperty("value", out var on) && on.ValueKind is JsonValueKind.True or JsonValueKind.False
+                        ? new BridgeMessage(BridgeCommand.SetService, Value: on.GetBoolean(), ServiceId: serviceId)
+                        : null;
+                case "setConsolePlaying":
+                    return root.TryGetProperty("value", out var playing) && playing.ValueKind is JsonValueKind.True or JsonValueKind.False
+                        ? new BridgeMessage(BridgeCommand.SetConsolePlaying, Value: playing.GetBoolean())
+                        : null;
                 case "exportDiagnostics":
                     return root.TryGetProperty("range", out var range) && range.ValueKind == JsonValueKind.String
                         && range.GetString() is { } r && GeckoPeeks.Logging.DiagnosticsExport.Ranges.ContainsKey(r)

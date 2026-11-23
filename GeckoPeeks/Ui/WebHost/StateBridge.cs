@@ -71,6 +71,9 @@ internal sealed class StateBridge : IDisposable
         _cloud.Changed += OnCoreChanged;
         _core.Region.Changed += OnRegionChanged;
         _core.RefData.Changed += OnRefDataChanged;
+        _core.Services.Changed += OnCoreChanged;
+        _core.Feeds.Changed += OnCoreChanged;
+        _core.ServiceSettings.Changed += OnCoreChanged;
         if (_demo)
         {
             // Demo: fixed history and no ASN lookups for the demo hops.
@@ -249,7 +252,8 @@ internal sealed class StateBridge : IDisposable
             UiMapping.Region(selection, lastTestTarget),
             UiMapping.Regions(_core.RefData.Current),
             DiagnosticsInfo());
-        return UiStateJson.Build(state, _historyJson, includeHistory, _demo ? null : _historyTotal);
+        return UiStateJson.Build(state, _historyJson, includeHistory, _demo ? null : _historyTotal,
+            ServiceStateJson.Build(_core, DateTime.UtcNow));
     }
 
     public void Dispose()
@@ -263,6 +267,9 @@ internal sealed class StateBridge : IDisposable
         _cloud.Changed -= OnCoreChanged;
         _core.Region.Changed -= OnRegionChanged;
         _core.RefData.Changed -= OnRefDataChanged;
+        _core.Services.Changed -= OnCoreChanged;
+        _core.Feeds.Changed -= OnCoreChanged;
+        _core.ServiceSettings.Changed -= OnCoreChanged;
         if (_updates != null)
             _updates.Changed -= OnUpdateChanged;
     }

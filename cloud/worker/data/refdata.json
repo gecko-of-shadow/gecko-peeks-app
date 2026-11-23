@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "version": "2026.11.21-1",
- "generatedAt": "2026-11-21T00:00:00Z",
+ "version": "2026.11.22-1",
+ "generatedAt": "2026-11-22T00:00:00Z",
  "credits": [
   "City codes: CAIDA router geolocation (2024-02 snapshot) and OurAirports",
   "Riot server cities: Riot Games engineering blog"
@@ -659,6 +659,19 @@
    ],
    "hostRegex": "^.+\\.([a-z]{3})\\d+\\.riotdirect\\.net$",
    "cityGroup": "riotdirect",
+   "tier": "destination"
+  },
+  {
+   "key": "valve",
+   "name": "Valve",
+   "asns": [
+    32590
+   ],
+   "domains": [
+    "valve.net"
+   ],
+   "stems": [],
+   "cityGroup": "valve",
    "tier": "destination"
   }
  ],
@@ -7526,6 +7539,44 @@
    "country": "CA",
    "lat": 43.68,
    "lon": -79.63
+  }
+ ],
+ "services": [
+  {
+   "id": "valve-sdr",
+   "name": "Steam (CS2, Dota 2)",
+   "group": "pc",
+   "requires": [
+    "services-v1",
+    "sdr-nearest-pop"
+   ],
+   "targetClass": "owned",
+   "owner": {
+    "name": "Valve",
+    "asns": [
+     32590
+    ]
+   },
+   "target": {
+    "kind": "sdr-nearest-pop",
+    "appId": 730,
+    "icmpExpected": true,
+    "label": "Route to your nearest Valve relay (ICMP)"
+   },
+   "caveat": "In-game ping goes through Valve's relay network, so it can be higher or lower than this.",
+   "processes": [
+    "cs2.exe",
+    "dota2.exe"
+   ],
+   "processesVerified": false,
+   "status": null,
+   "statusNote": "Valve publishes no status feed.",
+   "support": {
+    "asks": [
+     "traceroute"
+    ],
+    "url": null
+   }
   }
  ]
 }

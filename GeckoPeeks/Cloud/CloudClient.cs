@@ -128,6 +128,23 @@ public sealed class CloudClient : IDisposable
         return GetObjectAsync("v1/riot-status?region=" + Uri.EscapeDataString(id), cancel);
     }
 
+    /// <summary>GET /v1/sdr?app=&lt;id&gt;: Valve's relay list for one app, cut down by the Worker.</summary>
+    public Task<string> GetSdrJsonAsync(int appId, CancellationToken cancel)
+    {
+        if (appId is < 1 or > 9999999)
+            throw new CloudException("Unknown app.");
+        return GetObjectAsync("v1/sdr?app=" + appId.ToString(CultureInfo.InvariantCulture), cancel);
+    }
+
+    /// <summary>GET /v1/service-status?id=&lt;feed&gt;: one public status feed, mapped by the Worker.</summary>
+    public Task<string> GetServiceStatusJsonAsync(string feedId, CancellationToken cancel)
+    {
+        var id = (feedId ?? "").Trim();
+        if (id.Length is 0 or > 31 || !id.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '-'))
+            throw new CloudException("Unknown feed.");
+        return GetObjectAsync("v1/service-status?id=" + Uri.EscapeDataString(id), cancel);
+    }
+
     public void Dispose()
     {
         if (_ownsHttp)

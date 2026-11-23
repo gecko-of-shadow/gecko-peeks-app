@@ -14,7 +14,8 @@ public sealed class ProbeProgress
 }
 
 /// <summary>What one test needs: the target of the current region, the hop resolver and the reference data.</summary>
-public sealed record ProbeRequest(bool LeagueRunning, string TargetIp, IHopResolver Resolver, RefData RefData);
+/// <param name="PingLabel">The target's name in the progress text ("Ping Riot 3/10").</param>
+public sealed record ProbeRequest(bool LeagueRunning, string TargetIp, IHopResolver Resolver, RefData RefData, string PingLabel = "Riot");
 
 /// <summary>
 /// One route test: traceroute, reverse DNS, ASN names, last-hop ping, Riot ping.
@@ -279,7 +280,7 @@ public static class TestRunner
                 riotAddress,
                 PingCount,
                 HopTimeoutMs,
-                index => Report(progress, $"Ping Riot {index}/{PingCount}", hops),
+                index => Report(progress, $"Ping {request?.PingLabel ?? "Riot"} {index}/{PingCount}", hops),
                 cancellationToken,
                 RiotGiveUpAfter).ConfigureAwait(false);
             row.RiotHopAvg = riot.Avg;

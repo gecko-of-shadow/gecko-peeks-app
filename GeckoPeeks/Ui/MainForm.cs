@@ -184,7 +184,8 @@ internal sealed class MainForm : Form
                 + "- every test with each router on the route\n"
                 + "- the route log and the app's activity log\n"
                 + "- saved Cloudflare and Riot status data\n"
-                + "- League's own ping during matches\n\n"
+                + "- League's own ping during matches\n"
+                + "- the tests of the other services you turned on\n\n"
                 + "Check it before you share it: " + DiagnosticsExport.PrivacyText + "\n\n"
                 + "Gecko Peeks saves it on this PC only. Nothing is uploaded.",
                 "Export diagnostics", MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
@@ -502,6 +503,20 @@ internal sealed class MainForm : Form
             case BridgeCommand.SetSetting when message.Setting is { } setting:
                 ApplySetting(setting, message.Value);
                 break;
+            case BridgeCommand.SetService when message.ServiceId is { } serviceId:
+                // Only a service this build shows. The next clock check runs it (Production).
+                if (_core.RefData.Current.FindService(serviceId) is { } service)
+                {
+                    _core.ServiceSettings.Set(service.Id, message.Value);
+                    _scheduler.NoteActivity(message.Value ? $"{service.Name} turned on." : $"{service.Name} turned off.");
+                }
+
+                _bridge.MarkDirty();
+                break;
+            case BridgeCommand.SetConsolePlaying:
+                _core.ServiceSettings.SetConsolePlaying(message.Value);
+                _bridge.MarkDirty();
+                break;
             case BridgeCommand.ExportDiagnostics when message.Range is { } range:
                 // Leave the WebView2 callback before the dialogs open.
                 BeginInvoke(new Action(() => ExportDiagnostics(range)));
@@ -560,7 +575,10 @@ internal sealed class MainForm : Form
                 _settings.CloudEnabled = value;
                 // Demo shows fixed cloud data and makes no live calls.
                 if (!_demo)
+                {
                     _cloud.SetEnabled(value);
+                    _core.Feeds.Poke();
+                }
                 _bridge.MarkDirty();
                 break;
         }

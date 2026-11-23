@@ -1,9 +1,9 @@
 # gecko-peeks-api (Cloudflare Worker)
 
-This Worker gives Gecko Peeks v2 a small JSON API with live Cloudflare Radar data.
+This Worker gives Gecko Peeks v2 a small JSON API with live Cloudflare Radar data, Riot's status, and (from v2.2) Valve's relay list and the status feeds of other services.
 It runs at `https://gecko-peeks-api.gecko-apps.workers.dev`.
 
-It is not a proxy. Each Radar path is fixed in `src/index.js`. Each input is validated.
+It is not a proxy. Each Radar path is fixed in `src/index.js`, and each other source URL is fixed in `src/riot.js` or `src/services.js`. Each input is validated, and each answer is checked for its known shape.
 
 ## Endpoints
 
@@ -18,6 +18,8 @@ Bad parameters get `400 {"error":"bad_request","detail":"..."}`.
 | `/v1/asn?ips=a,b,c` | `{ results:[{ ip, asn, name, country }] }`. At most 15 IPs. | per IP 1 day |
 | `/v1/refdata` | The reference data file `data/refdata.json` (regions, country map, providers, city codes). No parameters. Sends `ETag: "rd-<version>"`; `If-None-Match` with that tag gives `304`. | 1 day |
 | `/v1/riot-status?region=<id>` | Riot's public status for one League region and its VALORANT shard (see below). | 60 s per region |
+| `/v1/sdr?app=<appid>` | Valve's relay list (`GetSDRConfig`), cut down to relay sites with public IPv4 relays (see below). | 6 h per app |
+| `/v1/service-status?id=<feed>` | One public status feed, mapped to one small shape (see below). | 120 s per feed (PlayStation: per feed and country) |
 
 ### `/v1/refdata`
 
@@ -36,6 +38,24 @@ Bad parameters get `400 {"error":"bad_request","detail":"..."}`.
   Completed maintenances and events whose `archiveAt` is past are dropped. The newest 10 per list are kept.
   Text is `en_US` when the feed has it, else the first locale.
 - When both feeds fail the answer is `no-store` and is not cached. One call makes at most 4 subrequests.
+- It uses the `RATE_LIMITER` binding.
+
+### `/v1/sdr`
+
+- `app` must be a Valve app id that a refdata service names (today only `730`). Anything else is `400`.
+- The Worker reads `https://api.steampowered.com/ISteamApps/GetSDRConfig/v1/?appid=<app>` (keyless; 5 s timeout, 768 KB cap).
+- Answer: `{ app, revision, fetchedAt, pops:[{ code, desc, lat, lon, relays:[ipv4] }] }`. Valve's `geo` is `[longitude, latitude]`; the answer names them. At most 4 public IPv4 relays per site. Sites without relays are left out.
+- When Valve's answer is not `success:true`, has no numeric `revision`, or has fewer than 5 usable sites, the answer is `502 {"error":"source_invalid"}` and is not cached.
+- It uses the `RATE_LIMITER` binding. The app picks the relay; it sends no location.
+
+### `/v1/service-status`
+
+- `id` is one of `discord`, `psn-scea`, `psn-scee`, `psn-sceja`, `xbox`, `nintendo`. Anything else is `400`.
+- Sources (all keyless; 5 s timeout, 768 KB cap): Discord's Statuspage `summary.json`; PlayStation's region files `status.playstation.com/data/statuses/region/<SCEA|SCEE|SCEJA>.json`; Xbox `xnotify.xboxlive.com/servicestatusv6/US/en-US` (with `Accept: application/json`); Nintendo `www.nintendo.co.jp/netinfo/en_US/status.json` (a byte order mark is removed).
+- Answer: `{ id, name, source, pageUrl, fetchedAt, status }`. `status` is `null` when the feed failed or its shape was not the known one; such an answer is `no-store`.
+- `status` is `{ indicator, description, incidents:[Item], maintenances:[Item], components:[{ name, group, status }] }`. Item: `{ title, status, impact, startedAt, updatedAt, text, beginText, endText }`. HTML is removed from text.
+- `indicator` is `none`, `minor`, `major`, `critical`, `maintenance`, `listed` (the feed lists a problem but gives no severity) or `unknown`. A state word the Worker does not know becomes `unknown` or `listed`, never `none`.
+- PlayStation keeps the region-wide items and the items of the caller's own country (`request.cf.country`). Nintendo dates are text in Nintendo's own words (Pacific Time on the `en_US` page), not parsed.
 - It uses the `RATE_LIMITER` binding.
 
 ### `isp.upstreams` in `/v1/pulse`
@@ -59,7 +79,7 @@ Rules:
 - The cache is per data center (`caches.default`). A call that lands on a new data center is a `MISS`.
 - A free Worker can make 50 subrequests per request. Cache calls count too. `/v1/asn` keeps to 45.
   With the cache, an IP costs 3 on a miss and 1 on a hit. 15 IPs fit, so every IP uses the cache.
-- The `RATE_LIMITER` binding (`wrangler.toml`) allows 30 calls per minute per caller IP on `/v1/pulse`, `/v1/asn` and `/v1/riot-status`. The `DOWNLOAD_LIMITER` binding allows 20 calls per minute per caller IP on `/v1/update/download`.
+- The `RATE_LIMITER` binding (`wrangler.toml`) allows 30 calls per minute per caller IP on `/v1/pulse`, `/v1/asn`, `/v1/riot-status`, `/v1/sdr` and `/v1/service-status`. The `DOWNLOAD_LIMITER` binding allows 20 calls per minute per caller IP on `/v1/update/download`.
   Over the limit the answer is `429 {"error":"rate_limited"}`. Without the binding every call is allowed.
 - No response sends `Access-Control-Allow-Origin`. Only the desktop app calls this Worker, and it does not need CORS.
   Other websites cannot read the answers from a visitor's browser.
@@ -116,7 +136,7 @@ npx wrangler secret put PUBLISH_KEY
 npm test
 ```
 
-`npm test` runs `node --test test/index.test.mjs test/update.test.mjs test/v21.test.mjs`.
+`npm test` runs `node --test test/index.test.mjs test/update.test.mjs test/v21.test.mjs test/v22.test.mjs`.
 
 The tests use no network. A fake `fetch` stands in for the Radar API.
 
