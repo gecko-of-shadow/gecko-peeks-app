@@ -46,7 +46,9 @@ Every card and every export names the **target class**, so a good result is neve
 
 **Steam (CS2, Dota 2)**, owned network: the route to your nearest Valve relay, from Valve's public relay list (`GetSDRConfig`, through the Worker). The app pings one relay at each of the 3 relay sites nearest to your Cloudflare location (3 pings each) and traces the one with the lowest ping. It keeps that choice for a day, or until the list changes, the relay stops answering, or your Cloudflare location moves. It checks that the relay is in Valve's network (AS32590); when it is not, the card says so. In-game ping goes through Valve's relay network, so it can be higher or lower. Valve publishes no status feed.
 
-A result older than one hour, or a relay list older than two days, shows as "not available". The app reads no game process for these services.
+**Discord** (v2.2.1+), CDN edge: the route to `latency.discord.media`, looked up with your PC's own DNS before each test. It is the Cloudflare edge (AS13335) that Discord uses for most voice traffic, not your voice server. A good result shows that the path to that edge is good, not that Discord's voice servers are fine. The card also shows Discord's own status feed (state, open incidents, parts not operational, voice regions included), under Discord's name. It is Discord's report, not a measurement by this app.
+
+A result older than one hour, a relay list older than two days, or a status answer older than 15 minutes shows as "not available". The app reads no game process for these services.
 
 ## Screenshots
 
@@ -151,7 +153,7 @@ Gecko Peeks has no account, no analytics and no telemetry.
 
 **Always on:**
 
-- ICMP traceroute and ping to the Riot target and the routers on the way. For each other service that is on, the same to its target (for Steam, also up to 9 pings to choose the relay).
+- ICMP traceroute and ping to the Riot target and the routers on the way. For each other service that is on, the same to its target (for Steam, also up to 9 pings to choose the relay). A host name target (Discord) is looked up with the DNS server that Windows uses.
 - Reverse DNS for each hop through the DNS server that Windows uses. This is the only place where hop 1, your gateway and private addresses go.
 - The update check (every 3 hours) and the download, from the Worker (see above). They send the update channel and the app version. Nothing else.
 - The window uses Microsoft Edge WebView2. The WebView2 runtime can contact Microsoft by itself. The page itself makes no network calls.
@@ -166,6 +168,7 @@ Gecko Peeks has no account, no analytics and no telemetry.
 | Worker `/v1/riot-status`, every 5 min | Your region id (for example `na1`). The Worker reads Riot's public status feeds. |
 | Worker `/v1/refdata`, once a day | Nothing else (an ETag). It returns the network and region list. |
 | Worker `/v1/sdr?app=730`, once a day, only while Steam is on | Nothing else. The Worker reads Valve's public relay list. The app picks the relay on your PC, so your location is not sent. |
+| Worker `/v1/service-status?id=discord`, every 5 min, only while Discord is on | Nothing else. The Worker reads Discord's public status page. |
 | Worker `/v1/asn`, after tests and when you open History | Public router addresses from your route and from older log rows, at most 15 per call. The Worker asks Cloudflare Radar about them. |
 | Google DNS (`dns.google`), then Cloudflare DNS (`cloudflare-dns.com`) | The reverse name of a public IPv4 router, when Windows DNS gives no name. The app tells Google not to pass on your subnet. |
 | Team Cymru, through Google DNS | A public IPv4 router address, as an ASN query. Only when the Worker gives no ASN. |

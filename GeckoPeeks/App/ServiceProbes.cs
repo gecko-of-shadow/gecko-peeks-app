@@ -85,6 +85,7 @@ public sealed class ServiceProbes
     internal Func<DateTime>? UtcNow { get; set; }
     internal Func<string, CancellationToken, Task<double?>>? PingAvg { get; set; }
     internal Func<ProbeRequest, IProgress<ProbeProgress>?, CancellationToken, Task<RouteRow>>? Runner { get; set; }
+    internal Func<string, CancellationToken, Task<string?>>? Resolve { get; set; }
 
     /// <summary>Raised after a result changed.</summary>
     public event Action? Changed;
@@ -208,6 +209,8 @@ public sealed class ServiceProbes
 
     private async Task<ServiceResult> RunOneAsync(ServiceInfo service, Action<string> phase, CancellationToken token)
     {
+        if (service.Target.Kind == ServiceInfo.KindHostname && service.Target.Host is { } host)
+            return await RunHostAsync(service, host, phase, token).ConfigureAwait(false);
         if (service.Target.Kind != ServiceInfo.KindSdr || service.Target.AppId is not { } app)
             return Result(service, "noTarget", "This app version cannot measure this target.");
         if (!_cloudOn())
@@ -220,26 +223,69 @@ public sealed class ServiceProbes
 
         phase("Choosing a relay");
         var pop = await ChooseAsync(config, here, token).ConfigureAwait(false);
-        phase("Tracing " + pop.RelayIp);
+        return await TraceAsync(service, pop.RelayIp, pop.PopDesc, pop, "Valve relay", phase, token).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// A hostname target: resolved before each test with this PC's own DNS (the system resolver),
+    /// so a CDN gives the edge this network gets (a console behind the same router most likely asks
+    /// the same resolver). The first public IPv4 answer is traced.
+    /// </summary>
+    private async Task<ServiceResult> RunHostAsync(ServiceInfo service, string host, Action<string> phase, CancellationToken token)
+    {
+        phase("Looking up " + host);
+        string? ip;
+        try
+        {
+            ip = await (Resolve ?? ResolveSystemAsync)(host, token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var why = ex is OperationCanceledException ? "did not answer within 5 seconds" : "failed (" + ex.Message + ")";
+            return Result(service, "noTarget", "This PC's DNS lookup of " + host + " " + why + ".") with { TargetName = host };
+        }
+
+        if (ip == null)
+            return Result(service, "noTarget", "This PC's DNS gave no public IPv4 address for " + host + ".") with { TargetName = host };
+        return await TraceAsync(service, ip, host, null, service.Name + " target", phase, token).ConfigureAwait(false);
+    }
+
+    /// <summary>The first public IPv4 address the system resolver gives, within 5 seconds, else null.</summary>
+    private static async Task<string?> ResolveSystemAsync(string host, CancellationToken token)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        var addresses = await Dns.GetHostAddressesAsync(host, System.Net.Sockets.AddressFamily.InterNetwork, timeout.Token).ConfigureAwait(false);
+        return addresses.Select(a => a.ToString()).FirstOrDefault(PublicIp.IsPublic);
+    }
+
+    private async Task<ServiceResult> TraceAsync(ServiceInfo service, string ip, string name, SdrChoice? pop, string pingLabel,
+        Action<string> phase, CancellationToken token)
+    {
+        phase("Tracing " + ip);
         var refData = _refData();
-        var request = new ProbeRequest(false, pop.RelayIp, _resolver, refData, "Valve relay");
+        var request = new ProbeRequest(false, ip, _resolver, refData, pingLabel);
         var progress = new PhaseProgress(phase);
         var row = await (Runner ?? TestRunner.RunAsync)(request, progress, token).ConfigureAwait(false);
         if (row.Cancelled)
-            return Result(service, "cancelled", "The test was cancelled.") with { TargetIp = pop.RelayIp, TargetName = pop.PopDesc, Pop = pop };
+            return Result(service, "cancelled", "The test was cancelled.") with { TargetIp = ip, TargetName = name, Pop = pop };
 
         // An error before any hop (the network dropped, a socket failed) is not a measurement.
         if (row.Hops.Count == 0)
             return Result(service, "stopped", string.IsNullOrWhiteSpace(row.Error) ? "The test recorded nothing." : "The test stopped: " + row.Error)
-                with { TargetIp = pop.RelayIp, TargetName = pop.PopDesc, Pop = pop, Row = row };
+                with { TargetIp = ip, TargetName = name, Pop = pop, Row = row };
 
-        var targetAsn = await TargetAsnAsync(row, pop.RelayIp, token).ConfigureAwait(false);
+        var targetAsn = await TargetAsnAsync(row, ip, token).ConfigureAwait(false);
         bool? ownerMatch = targetAsn is { } asn ? service.Owner.Asns.Contains(asn) : null;
         var names = RouteClassifier.NameHops(row.Hops, row.HopAsns, refData);
-        var silent = row.Hops.Count > 0 && row.Hops.All(h => !h.Responded);
+        var silent = row.Hops.All(h => !h.Responded);
         return new ServiceResult(service.Id, Now, silent ? "noReply" : "measured",
             silent ? "No router answered." : string.IsNullOrWhiteSpace(row.Error) ? "" : "Problem during the test: " + row.Error,
-            pop.RelayIp, pop.PopDesc, targetAsn, ownerMatch, row, names, pop);
+            ip, name, targetAsn, ownerMatch, row, names, pop);
     }
 
     /// <summary>The target's ASN from the test, else one lookup (the cache or the Worker).</summary>

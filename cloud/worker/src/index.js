@@ -9,7 +9,7 @@ import refdata from "../data/refdata.json" with { type: "json" };
 // list and other public status feeds, and returns small JSON documents for the Gecko Peeks desktop
 // app. It is not a proxy: every source path is fixed in code and every input is validated first.
 
-const VERSION = "2.2.0";
+const VERSION = "2.2.1";
 // Computed once per isolate. The ETag follows the refdata version string.
 const REFDATA_BODY = JSON.stringify(refdata);
 const REFDATA_ETAG = `"rd-${refdata.version}"`;

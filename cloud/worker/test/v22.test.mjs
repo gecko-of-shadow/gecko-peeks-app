@@ -74,10 +74,10 @@ test("refdata: every status feed a service names is a Worker feed", () => {
   }
 });
 
-test("health shows the 2.2 Worker", async () => {
-  assert.equal(VERSION, "2.2.0");
+test("health shows the 2.2.1 Worker", async () => {
+  assert.equal(VERSION, "2.2.1");
   const res = await handle(req("/v1/health"), {}, ctx());
-  assert.equal((await body(res)).version, "2.2.0");
+  assert.equal((await body(res)).version, "2.2.1");
 });
 
 // ---------- SDR mapper ----------

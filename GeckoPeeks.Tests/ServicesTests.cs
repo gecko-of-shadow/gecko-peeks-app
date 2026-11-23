@@ -146,6 +146,8 @@ public sealed class ServicesTests : IDisposable
         public bool CloudOn = true;
         public (double, double)? Location = (41.5, -87.0); // near Chicago
         public string? SdrAnswer;
+        public string? StatusAnswer;
+        public string? Resolved = "104.16.0.10";
         public readonly Dictionary<string, double?> Pings = new();
         public readonly List<string> Traced = new();
         public Func<string, RouteRow>? Row;
@@ -162,7 +164,8 @@ public sealed class ServicesTests : IDisposable
         rig.Settings = new ServiceSettings(Path.Combine(_folder, "service-settings.json"));
         if (on)
             rig.Settings.Set("valve-sdr", true);
-        var handler = new StubHandler(path => path.StartsWith("/v1/sdr", StringComparison.Ordinal) ? rig.SdrAnswer : null);
+        var handler = new StubHandler(path => path.StartsWith("/v1/sdr", StringComparison.Ordinal) ? rig.SdrAnswer
+            : path.StartsWith("/v1/service-status", StringComparison.Ordinal) ? rig.StatusAnswer : null);
         var client = new CloudClient(handler, "https://example.invalid");
         rig.Feeds = new ServiceFeeds(client, () => rig.CloudOn, () => rig.Probes.Enabled(), () => "NA", () => rig.Now);
         rig.Store = new DiagnosticsStore(Path.Combine(_folder, "Diagnostics"), "9.9.9");
@@ -171,10 +174,11 @@ public sealed class ServicesTests : IDisposable
         {
             UtcNow = () => rig.Now,
             PingAvg = (ip, _) => Task.FromResult(rig.Pings.TryGetValue(ip, out var v) ? v : null),
+            Resolve = (_, _) => Task.FromResult(rig.Resolved),
             Runner = (request, _, _) =>
             {
                 rig.Traced.Add(request.TargetIp);
-                Assert.Equal("Valve relay", request.PingLabel);
+                Assert.NotEqual("Riot", request.PingLabel);
                 return Task.FromResult(rig.Row?.Invoke(request.TargetIp) ?? MeasuredRow(request.TargetIp));
             },
         };
@@ -419,6 +423,134 @@ public sealed class ServicesTests : IDisposable
         rig.Location = (52.0, 5.0); // a VPN in the Netherlands
         await Run(rig, all: true);
         Assert.Equal(new[] { "162.254.192.71", "155.133.248.36" }, rig.Traced);
+    }
+
+    // ---------- Discord (v2.2.1): hostname target and status feed ----------
+
+    // The answer is set before the switch: turning a service on asks the feeds at once.
+    private Rig DiscordRig(string? status = DiscordStatus)
+    {
+        var rig = NewRig(on: false);
+        rig.StatusAnswer = status;
+        rig.Settings.Set("discord", true);
+        return rig;
+    }
+
+    private const string DiscordStatus = """
+        {"id":"discord","name":"Discord","source":"statuspage","pageUrl":"https://discordstatus.com/","fetchedAt":"2026-11-23T00:00:00Z",
+         "status":{"indicator":"none","description":"All Systems Operational","incidents":[],"maintenances":[],"components":[{"name":"US East","group":"Voice","status":"operational"}]}}
+        """;
+
+    [Fact]
+    public void Built_in_refdata_has_discord_as_a_cdn_edge_with_its_feed()
+    {
+        var d = Assert.Single(RefData.BuiltIn.Services, s => s.Id == "discord");
+        Assert.Equal(TargetClass.CdnEdge, d.Class);
+        Assert.Equal("CDN edge", d.ClassText);
+        Assert.Equal(ServiceInfo.KindHostname, d.Target.Kind);
+        Assert.Equal("latency.discord.media", d.Target.Host);
+        Assert.Equal("discord", d.Status!.Feed);
+        Assert.Contains("Not your voice server", d.Target.Label, StringComparison.Ordinal);
+        Assert.Equal("Cloudflare", RefData.BuiltIn.ProviderForAsn(13335)?.Name);
+    }
+
+    [Fact]
+    public async Task Hostname_target_is_resolved_and_traced_without_the_worker()
+    {
+        var rig = DiscordRig();
+        rig.CloudOn = false; // the system resolver needs no Worker
+        rig.Row = ip => MeasuredRow(ip, targetAsn: 13335);
+        await Run(rig);
+        Assert.Equal(new[] { "104.16.0.10" }, rig.Traced);
+        var r = rig.Probes.Last("discord")!;
+        Assert.Equal("measured", r.Outcome);
+        Assert.True(r.OwnerMatch);
+        Assert.Equal("latency.discord.media", r.TargetName);
+        using var doc = JsonDocument.Parse(Assert.Single(Lines("discord")));
+        Assert.Equal("cdn-edge", doc.RootElement.GetProperty("targetClass").GetString());
+        Assert.Equal("system", doc.RootElement.GetProperty("resolver").GetString());
+        Assert.Equal("latency.discord.media", doc.RootElement.GetProperty("targetHost").GetString());
+        Assert.False(doc.RootElement.TryGetProperty("relay", out _));
+    }
+
+    [Fact]
+    public void A_2_2_0_app_skips_discord_and_keeps_steam()
+    {
+        using var doc = JsonDocument.Parse(File.ReadAllText(RefDataPath()));
+        var old = new HashSet<string>(StringComparer.Ordinal) { "services-v1", "sdr-nearest-pop" };
+        var list = ServiceCatalog.Parse(doc.RootElement, old);
+        Assert.Equal(new[] { "valve-sdr" }, list.Select(s => s.Id));
+    }
+
+    [Fact]
+    public async Task A_failed_dns_lookup_says_so()
+    {
+        var rig = DiscordRig();
+        rig.Probes.Resolve = (_, _) => throw new System.Net.Sockets.SocketException(11001);
+        await Run(rig);
+        var r = rig.Probes.Last("discord")!;
+        Assert.Equal("noTarget", r.Outcome);
+        Assert.Contains("lookup of latency.discord.media failed", r.Reason, StringComparison.Ordinal);
+        rig.Probes.Resolve = (_, _) => throw new OperationCanceledException();
+        await Run(rig, all: true);
+        Assert.Contains("did not answer within 5 seconds", rig.Probes.Last("discord")!.Reason, StringComparison.Ordinal);
+        Assert.Empty(rig.Traced);
+    }
+
+    [Fact]
+    public async Task No_dns_answer_is_no_target()
+    {
+        var rig = DiscordRig();
+        rig.Resolved = null;
+        await Run(rig);
+        var r = rig.Probes.Last("discord")!;
+        Assert.Equal("noTarget", r.Outcome);
+        Assert.Contains("latency.discord.media", r.Reason, StringComparison.Ordinal);
+        Assert.Empty(rig.Traced);
+    }
+
+    [Fact]
+    public async Task Status_feed_is_shown_only_while_fresh_and_cloud_on()
+    {
+        var rig = DiscordRig();
+        await rig.Feeds.TickAsync();
+        string Feed(DateTime now)
+        {
+            using var doc = JsonDocument.Parse(ServiceStateJson.Build(RefData.BuiltIn.Services, rig.Settings, rig.Probes, rig.Feeds, rig.CloudOn, now));
+            var d = doc.RootElement.GetProperty("list").EnumerateArray().Single(x => x.GetProperty("id").GetString() == "discord");
+            Assert.Equal("discord", d.GetProperty("feedId").GetString());
+            return d.GetProperty("feed").ValueKind == JsonValueKind.Object
+                ? d.GetProperty("feed").GetProperty("status").GetProperty("indicator").GetString()!
+                : "null";
+        }
+
+        Assert.Equal("none", Feed(rig.Now));
+        rig.Now += ServiceFeeds.StatusMaxAge + TimeSpan.FromMinutes(1);
+        rig.StatusAnswer = null; // the next fetch fails
+        await rig.Feeds.TickAsync();
+        Assert.Equal("null", Feed(rig.Now));
+    }
+
+    [Fact]
+    public async Task A_feed_the_worker_could_not_read_is_not_available()
+    {
+        var rig = DiscordRig("{\"id\":\"discord\",\"name\":\"Discord\",\"status\":null}");
+        await rig.Feeds.TickAsync();
+        var answer = rig.Feeds.Status("discord");
+        Assert.NotNull(answer);
+        Assert.False(answer!.HasStatus);
+        Assert.False(ServiceFeeds.HasStatus("{\"id\":\"xbox\",\"status\":{}}", "discord"));
+    }
+
+    [Fact]
+    public async Task Turning_cloud_data_off_drops_the_feed()
+    {
+        var rig = DiscordRig();
+        await rig.Feeds.TickAsync();
+        Assert.NotNull(rig.Feeds.Status("discord"));
+        rig.CloudOn = false;
+        await rig.Feeds.TickAsync();
+        Assert.Null(rig.Feeds.Status("discord"));
     }
 
     // ---------- window state ----------

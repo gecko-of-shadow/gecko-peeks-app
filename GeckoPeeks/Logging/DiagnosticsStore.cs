@@ -181,6 +181,11 @@ public sealed class DiagnosticsStore
             o["targetClass"] = GeckoPeeks.Routing.ServiceInfo.ClassId(service.Class);
             o["targetClassText"] = service.ClassText;
             o["targetKind"] = service.Target.Kind;
+            if (service.Target.Host is { } host)
+            {
+                o["targetHost"] = host;
+                o["resolver"] = "system";
+            }
             o["targetLabel"] = service.Target.Label;
             o["caveat"] = Blank(service.Caveat);
             o["statusNote"] = Blank(service.StatusNote);

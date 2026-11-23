@@ -86,7 +86,8 @@ public sealed class ServiceFeeds : IDisposable
     private readonly Dictionary<string, FeedAnswer> _status = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTime> _failedAt = new(StringComparer.Ordinal);
     private System.Threading.Timer? _timer;
-    private int _busy;
+    // One pass at a time. A second caller waits, so after its await the data is current.
+    private readonly SemaphoreSlim _busy = new(1, 1);
     private bool _disposed;
 
     /// <param name="enabled">The Cloudflare live data setting.</param>
@@ -150,8 +151,7 @@ public sealed class ServiceFeeds : IDisposable
 
     public async Task TickAsync()
     {
-        if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
-            return;
+        await _busy.WaitAsync().ConfigureAwait(false);
         var changed = false;
         try
         {
@@ -243,7 +243,7 @@ public sealed class ServiceFeeds : IDisposable
         }
         finally
         {
-            Volatile.Write(ref _busy, 0);
+            _busy.Release();
             if (changed)
             {
                 try

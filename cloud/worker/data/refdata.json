@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "version": "2026.11.22-1",
- "generatedAt": "2026-11-22T00:00:00Z",
+ "version": "2026.11.23-1",
+ "generatedAt": "2026-11-23T00:00:00Z",
  "credits": [
   "City codes: CAIDA router geolocation (2024-02 snapshot) and OurAirports",
   "Riot server cities: Riot Games engineering blog"
@@ -672,6 +672,17 @@
    ],
    "stems": [],
    "cityGroup": "valve",
+   "tier": "destination"
+  },
+  {
+   "key": "cloudflare",
+   "name": "Cloudflare",
+   "asns": [
+    13335
+   ],
+   "domains": [],
+   "stems": [],
+   "cityGroup": "cloudflare",
    "tier": "destination"
   }
  ],
@@ -7574,6 +7585,44 @@
    "support": {
     "asks": [
      "traceroute"
+    ],
+    "url": null
+   }
+  },
+  {
+   "id": "discord",
+   "name": "Discord",
+   "group": "pc",
+   "requires": [
+    "services-v1",
+    "hostname",
+    "status-feed"
+   ],
+   "targetClass": "cdn-edge",
+   "owner": {
+    "name": "Cloudflare",
+    "asns": [
+     13335
+    ]
+   },
+   "target": {
+    "kind": "hostname",
+    "host": "latency.discord.media",
+    "icmpExpected": true,
+    "label": "Route to the Cloudflare edge used by Discord (ICMP). Not your voice server"
+   },
+   "caveat": "Discord runs most voice traffic on Cloudflare's edge. A good result shows that the path to that edge is good. It does not show that Discord's voice servers are fine.",
+   "processes": [
+    "Discord.exe"
+   ],
+   "processesVerified": true,
+   "status": {
+    "feed": "discord"
+   },
+   "statusNote": "Discord's own status page (discordstatus.com).",
+   "support": {
+    "asks": [
+     "voice debug log"
     ],
     "url": null
    }

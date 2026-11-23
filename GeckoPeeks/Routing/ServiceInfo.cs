@@ -77,6 +77,7 @@ public static class ServiceCatalog
     public static readonly IReadOnlySet<string> SupportedKinds = new HashSet<string>(StringComparer.Ordinal)
     {
         ServiceInfo.KindSdr,
+        ServiceInfo.KindHostname,
     };
 
     /// <summary>Features this build has. A service that requires another one is not shown.</summary>
@@ -84,6 +85,8 @@ public static class ServiceCatalog
     {
         "services-v1",
         ServiceInfo.KindSdr,
+        ServiceInfo.KindHostname,
+        "status-feed",
     };
 
     public const int MaxServices = 40;

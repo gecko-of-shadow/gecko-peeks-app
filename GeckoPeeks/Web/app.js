@@ -1431,7 +1431,7 @@
           id: str(x.id), name: str(x.name), group: str(x.group), on: bool(x.on),
           classId: str(x.classId), classText: str(x.classText) || 'Target class not known',
           ownerName: str(x.ownerName), ownerAsns: arr(x.ownerAsns).filter(isNum),
-          targetLabel: str(x.targetLabel), caveat: str(x.caveat), statusNote: str(x.statusNote),
+          targetKind: str(x.targetKind), targetLabel: str(x.targetLabel), caveat: str(x.caveat), statusNote: str(x.statusNote),
           feedId: x.feedId ? str(x.feedId) : '', feed: x.feed && typeof x.feed === 'object' ? x.feed : null,
           feedAgeSec: numOrNull(x.feedAgeSec), lastAgeSec: numOrNull(x.lastAgeSec),
           result: r ? {
@@ -1452,6 +1452,9 @@
     };
   }
   var svcOpen = {};
+  // What needs the Worker: Valve's relay list and every status feed. Host name targets use this PC's DNS.
+  var CLOUD_OFF_TEXT = 'Cloudflare live data is off. Valve\u2019s relay list and the status feeds come through the Gecko Peeks service, so they are not available. Services with a host name target still run.';
+  function own(map, key) { return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : null; }
   function svcAge(sec) { return isNum(sec) ? sec + (Date.now() - receivedAt) / 1000 : null; }
   function svcPingText(avg, loss) {
     if (isNum(avg)) return ms(avg) + (isNum(loss) ? ' · ' + pct(loss) + ' loss' : '');
@@ -1524,7 +1527,57 @@
     }
     if (sv.caveat) box.appendChild(h('div', { class: 'rs-ev-text', text: sv.caveat }));
     if (!sv.feedId && sv.statusNote) box.appendChild(h('div', { class: 'rs-ev-when', text: 'Status: ' + sv.statusNote }));
+    if (sv.feedId) box.appendChild(svcFeed(sv));
     return box;
+  }
+  // The vendor's own status feed, under the vendor's name. It never says "fine" about the route.
+  var FEED_BADGE = {
+    none: ['No problems listed', 'good'], minor: ['Minor problem', 'warn'], major: ['Major problem', 'bad'],
+    critical: ['Critical problem', 'bad'], maintenance: ['Maintenance', 'violet'], listed: ['Problem listed', 'warn'],
+    unknown: ['State not known', 'warn']
+  };
+  var COMPONENT_WORDS = {
+    degraded_performance: 'degraded performance', partial_outage: 'partial outage', major_outage: 'major outage',
+    under_maintenance: 'under maintenance', unknown: 'state not known'
+  };
+  function svcFeed(sv) {
+    var wrap = h('div', { class: 'svc-feed' });
+    var f = sv.feed ? obj(sv.feed) : null, st = f && f.status ? obj(f.status) : null;
+    // The host leaves out answers older than 15 minutes; the page also drops one that grew old since.
+    if (st && isNum(sv.feedAgeSec) && svcAge(sv.feedAgeSec) > 900) st = null;
+    var name = f && str(f.name) ? str(f.name) : sv.name;
+    if (!st) {
+      wrap.appendChild(h('div', { class: 'rs-ev-when', text: 'Status: not available. ' + (sv.statusNote || '') }));
+      return wrap;
+    }
+    var b = own(FEED_BADGE, str(st.indicator)) || FEED_BADGE.unknown;
+    wrap.appendChild(h('div', { class: 'rs-ev-meta' },
+      h('span', { class: 'rs-ev-when', style: 'margin:0', text: name + ' status' }),
+      h('span', { class: 'badge ' + b[1], text: b[0].toUpperCase() })));
+    if (str(st.description)) wrap.appendChild(h('div', { class: 'rs-ev-text', text: 'The feed says: ' + str(st.description) }));
+    var items = arr(st.incidents).concat(arr(st.maintenances)).slice(0, 5);
+    items.forEach(function (e) {
+      e = obj(e);
+      if (!str(e.title)) return;
+      var when = parseIso(e.updatedAt) || parseIso(e.startedAt);
+      var meta = [str(e.status).replace(/_/g, ' '), str(e.beginText) ? 'from ' + str(e.beginText) : '',
+        when ? 'updated ' + agoText((Date.now() - when.getTime()) / 1000) : ''].filter(Boolean).join(' · ');
+      wrap.appendChild(h('div', { class: 'rs-ev' },
+        h('div', { class: 'rs-ev-title', text: str(e.title) }),
+        meta ? h('div', { class: 'rs-ev-when', text: meta }) : null,
+        str(e.text) ? h('div', { class: 'rs-ev-text', text: str(e.text) }) : null));
+    });
+    var bad = arr(st.components).map(obj).filter(function (c) { return str(c.status) !== 'operational'; });
+    if (bad.length) {
+      wrap.appendChild(h('div', { class: 'rs-ev-text tone-warn', text: 'Parts not operational: ' + bad.slice(0, 8).map(function (c) {
+        return (str(c.group) ? str(c.group) + ' · ' : '') + str(c.name) + ' (' + (own(COMPONENT_WORDS, str(c.status)) || COMPONENT_WORDS.unknown) + ')';
+      }).join(', ') + (bad.length > 8 ? ' and ' + (bad.length - 8) + ' more' : '') + '.' }));
+    } else if (arr(st.components).length) {
+      wrap.appendChild(h('div', { class: 'rs-ev-when', text: 'All ' + arr(st.components).length + ' parts the feed lists are operational.' }));
+    }
+    var age = svcAge(sv.feedAgeSec);
+    wrap.appendChild(h('div', { class: 'rs-ev-when', text: 'Source: ' + name + ' public status feed, through the Gecko Peeks service' + (age !== null ? ' · updated ' + agoText(age) : '') + '. It is the vendor\u2019s own report, not a measurement by this app.' }));
+    return wrap;
   }
   function renderServicesOverview(card) {
     if (!card) return;
@@ -1545,7 +1598,7 @@
         h('a', { class: 'btn', href: '#/settings' }, h('span', { text: 'Open Settings' }))));
       return;
     }
-    if (!sv.cloudOn) card.appendChild(h('p', { class: 'card-sub tone-warn', text: 'Cloudflare live data is off. The targets of these services come through the Gecko Peeks service, so they are not available.' }));
+    if (!sv.cloudOn) card.appendChild(h('p', { class: 'card-sub tone-warn', text: CLOUD_OFF_TEXT }));
     card.appendChild(h('div', { class: 'rs-games' }, on.map(svcBlock)));
   }
   function renderServicesSettings(card) {
@@ -1576,7 +1629,7 @@
         sw));
     });
     card.appendChild(list);
-    if (!sv.cloudOn) card.appendChild(h('p', { class: 'card-sub tone-warn', text: 'These services need Cloudflare live data: their targets and status come through the Gecko Peeks service.' }));
+    if (!sv.cloudOn) card.appendChild(h('p', { class: 'card-sub tone-warn', text: CLOUD_OFF_TEXT }));
   }
 
   // ---------- Route page ----------
@@ -2410,6 +2463,24 @@
         popHow: 'Lowest ping of the 3 relays nearest to your Cloudflare location.', popCode: 'atl', targetAvgMs: 42, targetLossPct: 0,
         lastHopAvgMs: 41, lastHopLossPct: 0, lastHopIp: '162.254.199.247', upstream: 'HE', handoffNetwork: 'Valve', handoffCity: '', hops: demoHops }
     }] };
+    // Demo Discord: a Cloudflare edge (documentation-style demo address) and a made-up feed answer.
+    st.services.list.push({
+      id: 'discord', name: 'Discord', group: 'pc', on: true, classId: 'cdn-edge', classText: 'CDN edge',
+      ownerName: 'Cloudflare', ownerAsns: [13335], targetKind: 'hostname',
+      targetLabel: 'Route to the Cloudflare edge used by Discord (ICMP). Not your voice server',
+      caveat: "Discord runs most voice traffic on Cloudflare's edge. A good result shows that the path to that edge is good. It does not show that Discord's voice servers are fine.",
+      statusNote: "Discord's own status page (discordstatus.com).", feedId: 'discord', feedAgeSec: 90, lastAgeSec: 300,
+      feed: { id: 'discord', name: 'Discord', source: 'statuspage', pageUrl: 'https://discordstatus.com/', status: {
+        indicator: variant === 'svcfeed' ? 'minor' : 'none', description: variant === 'svcfeed' ? 'Partially Degraded Service' : 'All Systems Operational',
+        incidents: variant === 'svcfeed' ? [{ title: 'Demo: voice connection problems', status: 'investigating', impact: 'minor', startedAt: new Date(now - 20 * 60000).toISOString(), updatedAt: new Date(now - 5 * 60000).toISOString(), text: 'Demo text. We are looking into it.' }] : [],
+        maintenances: [], components: [{ name: 'US East', group: 'Voice', status: variant === 'svcfeed' ? 'partial_outage' : 'operational' }, { name: 'API', group: null, status: 'operational' }] } },
+      result: { ageSec: 300, outcome: 'measured', reason: '', targetIp: '104.16.0.10', targetName: 'latency.discord.media', targetAsn: 13335, ownerMatch: true,
+        popHow: '', popCode: '', targetAvgMs: 18, targetLossPct: 0, lastHopAvgMs: 17, lastHopLossPct: 0, lastHopIp: '184.105.64.9',
+        upstream: 'HE', handoffNetwork: 'Cloudflare', handoffCity: '', hops: [
+          { n: 1, ip: '192.168.1.1', host: '', rttMs: 1, responded: true, reachedTarget: false, network: '', asn: null },
+          { n: 2, ip: '184.105.64.9', host: 'core2.chi1.he.net', rttMs: 17, responded: true, reachedTarget: false, network: 'HE', asn: 6939 },
+          { n: 3, ip: '104.16.0.10', host: '', rttMs: 18, responded: true, reachedTarget: true, network: 'Cloudflare', asn: 13335 }] }
+    });
     if (variant === 'svcoff') { st.services.list[0].on = false; st.services.list[0].result = null; st.services.list[0].lastAgeSec = null; }
     if (variant === 'svcout') { var rr = st.services.list[0].result; rr.ownerMatch = false; rr.targetAsn = 64500; rr.targetAvgMs = null; rr.targetLossPct = 100; }
     if (variant === 'svcnone') { st.services.list[0].result = { ageSec: 30, outcome: 'noTarget', reason: "Valve's relay list is not available yet.", hops: [] }; }

@@ -629,6 +629,7 @@ body.nav-collapsed main { margin-left: var(--side-w-collapsed); }
 .svc-target { color: var(--muted); font-size: 13px; margin: 2px 0 10px; }
 .svc-facts { margin: 6px 0 4px; font-size: 13px; gap: 8px 18px; }
 .svc-hops { margin-top: 8px; font-size: 13px; }
+.svc-feed { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
 .svc-hops summary { cursor: pointer; color: var(--muted); }
 .svc-hops .table { margin-top: 6px; }
 .badge.accent { color: var(--accent); border-color: #f6821f55; background: #f6821f14; }
