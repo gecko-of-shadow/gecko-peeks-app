@@ -4,6 +4,8 @@ Gecko Peeks is a small Windows tray app. It watches the network route from your 
 
 Every 15 minutes it runs a traceroute and a ping to the Riot target for your region. While a League of Legends game runs, it tests every 5 minutes. It names the networks on the route, logs every test to a CSV file, and tells you when the route changes.
 
+**Current version: 2.2.3.** Download `GeckoPeeks.exe` from the [newest release](https://github.com/gecko-of-shadow/gecko-peeks-app/releases/latest). Then follow the steps in [Install](#install). After that, the app updates itself.
+
 ![Overview page with demo data](docs/screenshots/overview.png)
 
 *All screenshots use the built-in demo data. They do not show a real connection.*
@@ -68,20 +70,20 @@ A result older than one hour, a relay list older than two days, or a status answ
 - **Route**: every hop with its address, host name, ASN, network and round trip. A changed hop is marked.
 - **History**: which upstream carried your tests and how each did, and your tests, newest first, with **Show 200 more**.
 - **Internet**: Riot service status, where Cloudflare sees you, your ISP's upstream networks, country latency, traffic and events from Cloudflare Radar.
-- **Settings**: region, Start with Windows, Install updates automatically, Cloudflare live data, other services, the log, and the version.
+- **Settings**: region, Start with Windows, Install updates automatically, Cloudflare live data, other services, Playing on console, the log, Diagnostics, and the version.
 
 ## Install
 
 You need Windows 11 (x64). The app uses the Microsoft Edge WebView2 Runtime, which Windows 11 includes. It does not need administrator rights.
 
-1. Download `GeckoPeeks.exe` from the [Releases page](https://github.com/gecko-of-shadow/gecko-peeks-app/releases).
+1. Download `GeckoPeeks.exe` from the [newest release](https://github.com/gecko-of-shadow/gecko-peeks-app/releases/latest).
 2. Make the folder `%LOCALAPPDATA%\Programs\GeckoPeeks` and put the exe in it.
 3. Run the exe. The window opens, and the gecko icon shows in the tray.
 4. In **Settings**, turn on **Start with Windows** if you want it to run at sign-in.
 
 **Do not put the exe in Documents, on the Desktop or in another protected folder.** Windows Controlled Folder Access (ransomware protection) can stop the app from saving an update next to itself in those folders. Then auto-update cannot work. A folder under `%LOCALAPPDATA%` is not protected, so updates work there. Keep Controlled Folder Access on. Move the app instead.
 
-The exe is not code-signed. Windows SmartScreen can show a warning the first time you run it. Each release has the file `GeckoPeeks.exe.sha256` with the SHA-256 of the exe. Run this command and compare the `Hash` value (upper or lower case does not matter):
+The exe is not code-signed. Windows SmartScreen can show a warning the first time you run it. Each release note gives the SHA-256 of the exe. Some releases also have the file `GeckoPeeks.exe.sha256` with the same hash. Run this command and compare the `Hash` value (upper or lower case does not matter):
 
 ```powershell
 Get-FileHash "$env:LOCALAPPDATA\Programs\GeckoPeeks\GeckoPeeks.exe" -Algorithm SHA256
@@ -177,7 +179,7 @@ Gecko Peeks has no account, no analytics and no telemetry.
 | Worker `/v1/refdata`, once a day | Nothing else (an ETag). It returns the network and region list. |
 | Worker `/v1/sdr?app=730`, once a day, only while Steam is on | Nothing else. The Worker reads Valve's public relay list. The app picks the relay on your PC, so your location is not sent. |
 | Worker `/v1/service-status?id=discord`, every 5 min, only while Discord is on | Nothing else. The Worker reads Discord's public status page. |
-| Worker `/v1/service-status?id=psn-scea`, `psn-scee`, `psn-sceja`, `xbox` or `nintendo`, every 5 min, only for a console service that is on | The feed id. For PlayStation the app picks the region file from your Cloudflare continent, and the Worker keeps the items for the country Cloudflare sees for your request. |
+| Worker `/v1/service-status?id=psn-scea`, `psn-scee`, `psn-sceja`, `xbox` or `nintendo`, every 5 min, only for a console service that is on | The feed id. For PlayStation the app picks the region file from the country Cloudflare sees for you (else your continent), and the Worker keeps the items for the country Cloudflare sees for your request. |
 | Worker `/v1/asn`, after tests and when you open History | Public router addresses from your route and from older log rows, at most 15 per call. The Worker asks Cloudflare Radar about them. |
 | Google DNS (`dns.google`), then Cloudflare DNS (`cloudflare-dns.com`) | The reverse name of a public IPv4 router, when Windows DNS gives no name. The app tells Google not to pass on your subnet. |
 | Team Cymru, through Google DNS | A public IPv4 router address, as an ASN query. Only when the Worker gives no ASN. |
